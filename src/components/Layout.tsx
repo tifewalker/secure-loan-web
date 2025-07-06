@@ -15,7 +15,11 @@ import {
   DollarSign,
   Menu,
   X,
-  LogOut
+  LogOut,
+  Banknote,
+  ArrowRightLeft,
+  Shield,
+  UserCheck
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -44,9 +48,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const adminNavItems = [
     { name: 'Admin Dashboard', href: '/admin/dashboard', icon: Home },
     { name: 'Customers', href: '/admin/customers', icon: Users },
-    { name: 'Applications', href: '/admin/applications', icon: FileText },
+    { name: 'CASA Accounts', href: '/admin/accounts', icon: Banknote },
+    { name: 'Transactions', href: '/admin/transactions', icon: ArrowRightLeft },
+    { name: 'General Ledger', href: '/admin/general-ledger', icon: BookOpen },
+    { name: 'Loan Applications', href: '/admin/applications', icon: FileText },
     { name: 'Review Loans', href: '/admin/review', icon: BookOpen },
     { name: 'Disbursement', href: '/admin/disbursement', icon: DollarSign },
+    { name: 'Audit Trail', href: '/admin/audit', icon: Shield },
+    { name: 'Role Management', href: '/admin/roles', icon: UserCheck },
     { name: 'Settings', href: '/admin/settings', icon: Settings },
   ];
 
@@ -63,7 +72,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center">
               <DollarSign className="w-5 h-5 text-blue-600" />
             </div>
-            <span className="ml-2 text-xl font-bold text-white">LoanApp</span>
+            <span className="ml-2 text-xl font-bold text-white">BankApp</span>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -73,7 +82,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </button>
         </div>
 
-        <nav className="mt-8">
+        <nav className="mt-8 h-full overflow-y-auto pb-20">
           <div className="px-6 mb-4">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
               {user?.role === 'admin' ? 'Admin Menu' : 'User Menu'}
@@ -99,7 +108,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           })}
         </nav>
 
-        <div className="absolute bottom-0 w-full p-6 border-t">
+        <div className="absolute bottom-0 w-full p-6 border-t bg-white">
           <div className="flex items-center mb-4">
             <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
               <User className="w-4 h-4 text-blue-600" />
@@ -135,7 +144,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center">
               <DollarSign className="w-4 h-4 text-white" />
             </div>
-            <span className="ml-2 text-lg font-bold text-gray-900">LoanApp</span>
+            <span className="ml-2 text-lg font-bold text-gray-900">BankApp</span>
           </div>
         </div>
 
