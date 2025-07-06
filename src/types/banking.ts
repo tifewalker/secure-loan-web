@@ -77,6 +77,9 @@ export interface UserRole {
 }
 
 export interface Staff {
+  fullName: ReactNode;
+  isActive: any;
+  designation: ReactNode;
   id: string;
   email: string;
   name: string;

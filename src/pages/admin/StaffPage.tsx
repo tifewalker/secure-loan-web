@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,7 @@ import { Search, Plus, User, Edit, Trash2, UserCheck } from 'lucide-react';
 import { useRoles } from '../../contexts/RoleContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Staff } from '../../types/banking';
+import axios from 'axios';
 
 const StaffPage = () => {
   const { roles, assignRole, removeRole, getUserRoles } = useRoles();
@@ -20,31 +21,41 @@ const StaffPage = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isAssignRoleOpen, setIsAssignRoleOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<string | null>(null);
+
+  // const token = localStorage.getItem('token') || '';
+  // console.log('Token:', token);
+  const [loading, setLoading] = useState(true);
+
   
-  const [staff, setStaff] = useState<Staff[]>([
-    {
-      id: '1',
-      email: 'john.teller@bank.com',
-      name: 'John Smith',
-      department: 'Operations',
-      position: 'Bank Teller',
-      status: 'active',
-      createdAt: '2024-01-15T00:00:00Z',
-      updatedAt: '2024-01-15T00:00:00Z',
-      createdBy: 'admin'
-    },
-    {
-      id: '2',
-      email: 'sarah.manager@bank.com',
-      name: 'Sarah Johnson',
-      department: 'Customer Service',
-      position: 'Account Manager',
-      status: 'active',
-      createdAt: '2024-01-10T00:00:00Z',
-      updatedAt: '2024-01-10T00:00:00Z',
-      createdBy: 'admin'
+  const [staff, setStaff] = useState<Staff[]>([]);
+   useEffect(() => {
+  const fetchStaff = async () => {
+    const token = localStorage.getItem('token'); // <-- move this inside
+    if (!token) {
+      console.warn('No token found. User might not be logged in.');
+      return;
     }
-  ]);
+console.log('Fetching staff with token:', token);
+    setLoading(true);
+    try {
+      const response = await axios.get('http://localhost:3000/api/user/all', {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      setStaff(response.data as Staff[]);
+    } catch (error) {
+      console.error('Error fetching staff:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  fetchStaff();
+}, []);
+
+
 
   const [newStaff, setNewStaff] = useState({
     email: '',
@@ -60,9 +71,9 @@ const StaffPage = () => {
   });
 
   const filteredStaff = staff.filter(s =>
-    s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.department.toLowerCase().includes(searchTerm.toLowerCase())
+    s.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    s.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    s.department?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleCreateStaff = () => {
@@ -75,7 +86,10 @@ const StaffPage = () => {
       status: 'active',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      createdBy: user?.email || 'admin'
+      createdBy: user?.email || 'admin',
+      fullName: undefined,
+      isActive: undefined,
+      designation: undefined
     };
     
     setStaff(prev => [...prev, staff]);
@@ -265,12 +279,12 @@ const StaffPage = () => {
                         <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                           <User className="w-4 h-4 text-blue-600" />
                         </div>
-                        <span className="font-medium">{member.name}</span>
+                        <span className="font-medium">{member.fullName}</span>
                       </div>
                     </TableCell>
                     <TableCell>{member.email}</TableCell>
                     <TableCell>{member.department}</TableCell>
-                    <TableCell>{member.position}</TableCell>
+                    <TableCell>{member.designation}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {userRoles.map(role => (
@@ -291,7 +305,7 @@ const StaffPage = () => {
                     </TableCell>
                     <TableCell>
                       <Badge variant={member.status === 'active' ? 'default' : 'secondary'}>
-                        {member.status}
+                        {member.isActive ? 'Active' : 'Inactive'}
                       </Badge>
                     </TableCell>
                     <TableCell>

@@ -29,6 +29,7 @@ const LoginPage = () => {
           description: "Welcome back!",
         });
         navigate('/dashboard');
+       
       } else {
         toast({
           title: "Login failed",
