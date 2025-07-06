@@ -24,6 +24,13 @@ import {
   UserPlus
 } from 'lucide-react';
 
+interface NavItem {
+  name: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  permission?: string;
+}
+
 interface LayoutProps {
   children: React.ReactNode;
 }
@@ -39,7 +46,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     navigate('/');
   };
 
-  const userNavItems = [
+  const userNavItems: NavItem[] = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
     { name: 'Apply for Loan', href: '/apply', icon: FileText },
     { name: 'Loan History', href: '/history', icon: Clock },
@@ -47,7 +54,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Profile', href: '/profile', icon: User },
   ];
 
-  const adminNavItems = [
+  const adminNavItems: NavItem[] = [
     { name: 'Admin Dashboard', href: '/admin/dashboard', icon: Home },
     { name: 'Customers', href: '/admin/customers', icon: Users, permission: 'view_customers' },
     { name: 'Staff Management', href: '/admin/staff', icon: UserPlus, permission: 'manage_users' },
@@ -111,7 +118,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </Link>
             );
 
-            if ('permission' in item && item.permission) {
+            if (item.permission) {
               return (
                 <PermissionGuard key={item.name} permission={item.permission}>
                   {linkContent}
