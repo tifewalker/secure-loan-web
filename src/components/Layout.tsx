@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
+import PermissionGuard from './PermissionGuard';
 import { 
   Home, 
   FileText, 
@@ -19,7 +20,8 @@ import {
   Banknote,
   ArrowRightLeft,
   Shield,
-  UserCheck
+  UserCheck,
+  UserPlus
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -47,15 +49,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const adminNavItems = [
     { name: 'Admin Dashboard', href: '/admin/dashboard', icon: Home },
-    { name: 'Customers', href: '/admin/customers', icon: Users },
-    { name: 'CASA Accounts', href: '/admin/accounts', icon: Banknote },
-    { name: 'Transactions', href: '/admin/transactions', icon: ArrowRightLeft },
-    { name: 'General Ledger', href: '/admin/general-ledger', icon: BookOpen },
+    { name: 'Customers', href: '/admin/customers', icon: Users, permission: 'view_customers' },
+    { name: 'Staff Management', href: '/admin/staff', icon: UserPlus, permission: 'manage_users' },
+    { name: 'CASA Accounts', href: '/admin/accounts', icon: Banknote, permission: 'view_accounts' },
+    { name: 'Transactions', href: '/admin/transactions', icon: ArrowRightLeft, permission: 'view_transactions' },
+    { name: 'General Ledger', href: '/admin/general-ledger', icon: BookOpen, permission: 'view_reports' },
     { name: 'Loan Applications', href: '/admin/applications', icon: FileText },
     { name: 'Review Loans', href: '/admin/review', icon: BookOpen },
     { name: 'Disbursement', href: '/admin/disbursement', icon: DollarSign },
-    { name: 'Audit Trail', href: '/admin/audit', icon: Shield },
-    { name: 'Role Management', href: '/admin/roles', icon: UserCheck },
+    { name: 'Audit Trail', href: '/admin/audit', icon: Shield, permission: 'view_audit' },
+    { name: 'Role Management', href: '/admin/roles', icon: UserCheck, permission: 'manage_roles' },
     { name: 'Settings', href: '/admin/settings', icon: Settings },
   ];
 
@@ -90,7 +93,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </div>
           {navItems.map((item) => {
             const isActive = location.pathname === item.href;
-            return (
+            
+            // If item has permission requirement, wrap in PermissionGuard
+            const linkContent = (
               <Link
                 key={item.name}
                 to={item.href}
@@ -105,6 +110,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 {item.name}
               </Link>
             );
+
+            if ('permission' in item && item.permission) {
+              return (
+                <PermissionGuard key={item.name} permission={item.permission}>
+                  {linkContent}
+                </PermissionGuard>
+              );
+            }
+
+            return linkContent;
           })}
         </nav>
 

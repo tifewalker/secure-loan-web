@@ -1,4 +1,3 @@
-
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -34,6 +33,7 @@ import ContactPage from "./pages/ContactPage";
 import AboutUsPage from "./pages/AboutUsPage";
 import TermsPage from "./pages/TermsPage";
 import NotFound from "./pages/NotFound";
+import StaffPage from "./pages/admin/StaffPage";
 
 const queryClient = new QueryClient();
 
@@ -147,6 +147,13 @@ const App = () => (
                   <AdminRoute>
                     <Layout>
                       <DisbursementPage />
+                    </Layout>
+                  </AdminRoute>
+                } />
+                <Route path="/admin/staff" element={
+                  <AdminRoute>
+                    <Layout>
+                      <StaffPage />
                     </Layout>
                   </AdminRoute>
                 } />

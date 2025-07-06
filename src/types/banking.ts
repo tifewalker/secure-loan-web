@@ -1,4 +1,3 @@
-
 export interface Account {
   id: string;
   accountNumber: string;
@@ -75,4 +74,24 @@ export interface UserRole {
   roleId: string;
   assignedBy: string;
   assignedAt: string;
+}
+
+export interface Staff {
+  id: string;
+  email: string;
+  name: string;
+  department: string;
+  position: string;
+  status: 'active' | 'inactive';
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  permissions?: string[];
 }
