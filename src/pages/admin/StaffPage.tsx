@@ -75,7 +75,7 @@ const StaffPage = () => {
       status: 'active',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      createdBy: user?.id || 'admin'
+      createdBy: user?.email || 'admin'
     };
     
     setStaff(prev => [...prev, staff]);
@@ -85,7 +85,7 @@ const StaffPage = () => {
 
   const handleAssignRole = () => {
     if (roleAssignment.staffId && roleAssignment.roleId) {
-      assignRole(roleAssignment.staffId, roleAssignment.roleId, user?.id || 'admin');
+      assignRole(roleAssignment.staffId, roleAssignment.roleId, user?._id || 'admin');
       setRoleAssignment({ staffId: '', roleId: '' });
       setIsAssignRoleOpen(false);
     }

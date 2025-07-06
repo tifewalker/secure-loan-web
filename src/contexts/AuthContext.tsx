@@ -3,16 +3,29 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRoles } from './RoleContext';
 
 interface User {
-  id: string;
+  _id: string;
+  firstName: string;
+  lastName: string;
   email: string;
-  name: string;
-  role: 'user' | 'admin';
+  phoneNumber: string;
+  confirmEmail: string;
+  staffId: string;
+  designation: string;
+  department: string;
+  accessLevel: string;
+  twoFaEnabled: boolean;
+  twoFactorMethod: string;
+  password: string;
+  confirmPassword: string;
+  fullName: string;
+  role: 'user' | 'admin'| 'company'; // Adjust roles as needed
+
 }
 
 interface AuthContextType {
   user: User | null;
   login: (email: string, password: string) => Promise<boolean>;
-  register: (email: string, password: string, name: string) => Promise<boolean>;
+  register: (email: string, password: string, firstName: string, lastName: string ) => Promise<boolean>;
   logout: () => void;
   isLoading: boolean;
   hasPermission: (permission: string) => boolean;
@@ -50,14 +63,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         { id: '1', email: 'user@demo.com', password: 'password', name: 'John Doe', role: 'user' as const },
         { id: '2', email: 'admin@demo.com', password: 'admin', name: 'Admin User', role: 'admin' as const }
       ];
-      
-      const foundUser = mockUsers.find(u => u.email === email && u.password === password);
-      
-      if (foundUser) {
-        const userWithoutPassword = { ...foundUser };
-        delete (userWithoutPassword as any).password;
-        setUser(userWithoutPassword);
-        localStorage.setItem('user', JSON.stringify(userWithoutPassword));
+      // const foundUser = mockUsers.find(u => u.email === email && u.password === password);
+      const response = await fetch("http://localhost:3000/api/user/signin", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || "Login failed");
+      }
+
+      // Assuming the API returns a user object on success
+      if (result && result.user) {
+        setUser(result.user);
+        localStorage.setItem('token', JSON.stringify(result.user.token));
         return true;
       }
       return false;
@@ -66,20 +90,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const register = async (email: string, password: string, name: string): Promise<boolean> => {
+  const register = async (
+    email: string,
+    password: string,
+    firstName: string,
+    lastName: string
+  ): Promise<boolean> => {
     setIsLoading(true);
     try {
-      // Mock registration - replace with actual API call
-      const newUser = {
-        id: Date.now().toString(),
+      // Construct the user object with required fields; fill others with defaults or empty strings
+      const formData: User = {
+        firstName,
+        lastName,
         email,
-        name,
-        role: 'user' as const
+        phoneNumber: "",
+        confirmEmail: email,
+        staffId: "",
+        designation: "",
+        department: "",
+        accessLevel: "",
+        twoFaEnabled: false,
+        twoFactorMethod: "",
+        password,
+        confirmPassword: password,
+        fullName: `${firstName} ${lastName}`,
+        role: "user",
+        _id: ''
       };
-      
-      setUser(newUser);
-      localStorage.setItem('user', JSON.stringify(newUser));
-      return true;
+  
+      const response = await fetch("http://localhost:3000/api/user/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(formData),
+      });
+  
+      const result = await response.json();
+  
+      if (!response.ok) {
+        throw new Error(result.message || "Registration failed");
+      }
+  
+      // Assuming the API returns a user object on success
+      if (result && result.user) {
+        setUser(result.user);
+        localStorage.setItem('user', JSON.stringify(result.user));
+        return true;
+      }
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -93,6 +152,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const hasPermission = (permission: string): boolean => {
     if (!user) return false;
     if (user.role === 'admin') return true;
+    if (user.role === 'company') return true;
     
     // Get user's roles and check permissions
     // This would be implemented with actual role checking logic
@@ -102,6 +162,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canAccess = (resource: string, action: string): boolean => {
     if (!user) return false;
     if (user.role === 'admin') return true;
+    if (user.role === 'company') return true;
+
     
     return hasPermission(`${action}_${resource}`);
   };

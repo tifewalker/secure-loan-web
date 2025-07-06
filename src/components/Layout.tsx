@@ -136,7 +136,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               <User className="w-4 h-4 text-blue-600" />
             </div>
             <div className="ml-3">
-              <p className="text-sm font-medium text-gray-700">{user?.name}</p>
+              <p className="text-sm font-medium text-gray-700">{user?.fullName}</p>
               <p className="text-xs text-gray-500">{user?.email}</p>
             </div>
           </div>
@@ -166,7 +166,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center">
               <DollarSign className="w-4 h-4 text-white" />
             </div>
-            <span className="ml-2 text-lg font-bold text-gray-900">BankApp</span>
+            <span className="ml-2 text-lg font-bold text-gray-900">Peak-Financial</span>
           </div>
         </div>
 

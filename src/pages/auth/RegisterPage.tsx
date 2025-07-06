@@ -12,11 +12,21 @@ import { toast } from '@/hooks/use-toast';
 
 const RegisterPage = () => {
   const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
-    acceptTerms: false
+    firstName: "",
+  lastName: "",
+  email: "",
+  phoneNumber: "",
+  confirmEmail: "",
+  staffId: "",
+  role: "",
+  designation: "",
+  department: "",
+  accessLevel: "",
+  twoFaEnabled: "",
+  twoFactorMethod: "",
+  password: "",
+  confirmPassword: "",
+  acceptTerms: false
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -53,7 +63,7 @@ const RegisterPage = () => {
     setIsLoading(true);
 
     try {
-      const success = await register(formData.email, formData.password, formData.name);
+      const success = await register(formData.email, formData.password, formData.firstName, formData.lastName);
       if (success) {
         toast({
           title: "Registration successful",
@@ -79,8 +89,8 @@ const RegisterPage = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="w-full max-w-md">
+    <div className=" min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="w-full max-h-full">
         {/* Logo */}
         <div className="flex items-center justify-center mb-8">
           <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center">
@@ -98,33 +108,147 @@ const RegisterPage = () => {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Full Name</Label>
-                <Input
-                  id="name"
-                  name="name"
-                  type="text"
-                  placeholder="Enter your full name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  required
-                />
+              <div className="flex min-w-full gap-4">
+                    <div className="space-y-2 flex-1">
+                    <Label htmlFor="name">First Name</Label>
+                    <Input
+                      id="firstName"
+                      name="firstName"
+                      type="text"
+                      placeholder="Enter your first name"
+                      value={formData.firstName}
+                      onChange={handleChange}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2 flex-1">
+                    <Label htmlFor="lastName">Last Name</Label>
+                    <Input
+                      id="lastName"
+                      name="lastName"
+                      type="text"
+                      placeholder="Enter your last name"
+                      value={formData.lastName}
+                      onChange={handleChange}
+                      required
+                    />
+                  </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  placeholder="Enter your email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  required
-                />
+              <div className="flex w-full gap-4">
+                    <div className="space-y-2 flex-1">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      name="email"
+                      type="email"
+                      placeholder="Enter your email"
+                      value={formData.email}
+                      onChange={handleChange}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2 flex-1">
+                    <Label htmlFor="email2">Confirm Email</Label>
+                    <Input
+                      id="email2"
+                      name="email2"
+                      type="email"
+                      placeholder="Confirm your email"
+                      value={formData.confirmEmail}
+                      onChange={handleChange}
+                      required
+                    />
+                  </div>
+              </div>
+              <div className="flex w-full gap-4">
+                    <div className="space-y-2 flex-1">
+                    <Label htmlFor="phoneNumber">Phone Number</Label>
+                    <Input
+                      id="phoneNumber"
+                      name="phoneNumber"
+                      type="tel"
+                      placeholder="Enter your phone number"
+                      value={formData.phoneNumber}
+                      onChange={handleChange}
+                      required
+                    />
+                    </div>
+                  <div className="space-y-2 flex-1">
+                    <Label htmlFor="role">Role</Label>
+                    <Input
+                      id="role"
+                      name="role"
+                      type="text"
+                      placeholder="Enter your role (e.g., User, Admin)"
+                      value={formData.role}
+                      onChange={handleChange}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2 flex-1">
+                    <Label htmlFor="staffId">Staff ID</Label>
+                    <Input
+                      id="staffId"
+                      name="staffId"
+                      type="text"
+                      placeholder="Enter your staff ID"
+                      value={formData.staffId}
+                      onChange={handleChange}
+                    />
+                  </div>
+              </div>
+              <div className="flex w-full gap-4">
+                    <div className="space-y-2 flex-1">
+                    <Label htmlFor="designation">Designation</Label>
+                    <Input
+                      id="designation"
+                      name="designation"
+                      type="text"
+                      placeholder="Enter your designation"
+                      value={formData.designation}
+                      onChange={handleChange}
+                    />
+                    </div>
+                  <div className="space-y-2 flex-1">
+                    <Label htmlFor="twoFaEnabled">Department</Label>
+                    <Input
+                      id="Department"
+                      name="Department"
+                      type="text"
+                      placeholder="Operations, HR, etc."
+                      value={formData.twoFaEnabled}
+                      onChange={handleChange}
+                    />
+                    </div>
+                  </div>
+                  <div className="flex w-full gap-4">
+                  <div className="space-y-2 flex-1">
+                    <Label htmlFor="department">Department</Label>
+                    <Input
+                      id="department"
+                      name="department"
+                      type="text"
+                      placeholder="Enter your department"
+                      value={formData.department}
+                      onChange={handleChange}
+                    />
+                  </div>
+                  <div className="space-y-2 flex-1">
+                    <Label htmlFor="accessLevel">Access Level</Label>
+                    <Input
+                      id="accessLevel"
+                      name="accessLevel"
+                      type="text"
+                      placeholder="Enter your access level"
+                      value={formData.accessLevel}
+                      onChange={handleChange}
+                    />
+                  </div>
               </div>
               
-              <div className="space-y-2">
+              <div className="flex w-full gap-4">
+                <div className="space-y-2 flex-1">
                 <Label htmlFor="password">Password</Label>
                 <div className="relative">
                   <Input
@@ -146,7 +270,7 @@ const RegisterPage = () => {
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 flex-1">
                 <Label htmlFor="confirmPassword">Confirm Password</Label>
                 <div className="relative">
                   <Input
@@ -166,6 +290,7 @@ const RegisterPage = () => {
                     {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+              </div>
               </div>
 
               <div className="flex items-center space-x-2">

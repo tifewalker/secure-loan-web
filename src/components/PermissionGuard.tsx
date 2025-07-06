@@ -40,7 +40,7 @@ const PermissionGuard: React.FC<PermissionGuardProps> = ({
   }
 
   // Check user roles and permissions
-  const userRoles = getUserRoles(user.id);
+  const userRoles = getUserRoles(user?._id || user._id || '');
   if (userRoles.length === 0) {
     return <>{fallback}</>;
   }
