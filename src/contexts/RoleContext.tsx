@@ -16,7 +16,7 @@ interface RoleContextType {
 }
 
 const RoleContext = createContext<RoleContextType | undefined>(undefined);
-const apiUrl = process.env.BACKEND_URL || 'http://localhost:3000/api';
+const apiUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000/api';
 
 export const useRoles = () => {
   const context = useContext(RoleContext);
