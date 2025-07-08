@@ -34,6 +34,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
@@ -81,7 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Assuming the API returns a user object on success
       if (result && result.user) {
         setUser(result.user);
-        localStorage.setItem('token', JSON.stringify(result.user.token));
+        localStorage.setItem('token', (result.token));
         return true;
       }
       return false;
@@ -152,7 +153,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const hasPermission = (permission: string): boolean => {
     if (!user) return false;
     if (user.role === 'admin') return true;
-    if (user.role === 'company') return true;
+    // if (user.role === 'company') return true;
     
     // Get user's roles and check permissions
     // This would be implemented with actual role checking logic
@@ -162,7 +163,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canAccess = (resource: string, action: string): boolean => {
     if (!user) return false;
     if (user.role === 'admin') return true;
-    if (user.role === 'company') return true;
+    // if (user.role === 'company') return true;
 
     
     return hasPermission(`${action}_${resource}`);

@@ -18,6 +18,7 @@ interface RoleContextType {
 const RoleContext = createContext<RoleContextType | undefined>(undefined);
 const apiUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000/api';
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useRoles = () => {
   const context = useContext(RoleContext);
   if (context === undefined) {
