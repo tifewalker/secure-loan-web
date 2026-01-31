@@ -11,7 +11,6 @@ import AdminRoute from "./components/AdminRoute";
 import Layout from "./components/Layout";
 import Index from "./pages/Index";
 import LoginPage from "./pages/auth/LoginPage";
-import RegisterPage from "./pages/auth/RegisterPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import DashboardPage from "./pages/user/DashboardPage";
 import LoanApplicationPage from "./pages/user/LoanApplicationPage";
@@ -34,6 +33,10 @@ import AboutUsPage from "./pages/AboutUsPage";
 import TermsPage from "./pages/TermsPage";
 import NotFound from "./pages/NotFound";
 import StaffPage from "./pages/admin/StaffPage";
+import FeeManagementPage from "./pages/admin/FeeManagementPage";
+import InterestManagementPage from "./pages/admin/InterestManagementPage";
+import LoanProductsPage from "./pages/admin/LoanProductsPage";
+
 
 const queryClient = new QueryClient();
 
@@ -50,13 +53,12 @@ const App = () => (
                 {/* Public routes */}
                 <Route path="/" element={<Index />} />
                 <Route path="/login" element={<LoginPage />} />
-                <Route path="/register" element={<RegisterPage />} />
                 <Route path="/forgot-password" element={<ForgotPasswordPage />} />
                 <Route path="/contact" element={<ContactPage />} />
                 <Route path="/about" element={<AboutUsPage />} />
                 <Route path="/terms" element={<TermsPage />} />
                 
-                {/* Protected user routes */}
+                {/* Protected user routes - for customers only */}
                 <Route path="/dashboard" element={
                   <ProtectedRoute>
                     <Layout>
@@ -93,7 +95,7 @@ const App = () => (
                   </ProtectedRoute>
                 } />
                 
-                {/* Admin routes */}
+                {/* Admin routes - for both admin AND staff users */}
                 <Route path="/admin/dashboard" element={
                   <AdminRoute>
                     <Layout>
@@ -101,34 +103,8 @@ const App = () => (
                     </Layout>
                   </AdminRoute>
                 } />
-                <Route path="/admin/customers" element={
-                  <AdminRoute>
-                    <Layout>
-                      <CustomersPage />
-                    </Layout>
-                  </AdminRoute>
-                } />
-                <Route path="/admin/accounts" element={
-                  <AdminRoute>
-                    <Layout>
-                      <AccountsPage />
-                    </Layout>
-                  </AdminRoute>
-                } />
-                <Route path="/admin/transactions" element={
-                  <AdminRoute>
-                    <Layout>
-                      <TransactionsPage />
-                    </Layout>
-                  </AdminRoute>
-                } />
-                <Route path="/admin/general-ledger" element={
-                  <AdminRoute>
-                    <Layout>
-                      <GeneralLedgerPage />
-                    </Layout>
-                  </AdminRoute>
-                } />
+                
+                {/* Loan Operations */}
                 <Route path="/admin/applications" element={
                   <AdminRoute>
                     <Layout>
@@ -136,6 +112,7 @@ const App = () => (
                     </Layout>
                   </AdminRoute>
                 } />
+                
                 <Route path="/admin/review" element={
                   <AdminRoute>
                     <Layout>
@@ -150,17 +127,64 @@ const App = () => (
                     </Layout>
                   </AdminRoute>
                 } />
+                
+                
+                {/* Customer Management */}
+                <Route path="/admin/customers" element={
+                  <AdminRoute>
+                    <Layout>
+                      <CustomersPage />
+                    </Layout>
+                  </AdminRoute>
+                } />
+               
+                
+                {/* Accounts */}
+                <Route path="/admin/accounts" element={
+                  <AdminRoute>
+                    <Layout>
+                      <AccountsPage />
+                    </Layout>
+                  </AdminRoute>
+                } />
+                <Route path="/admin/transactions" element={
+                  <AdminRoute>
+                    <Layout>
+                      <TransactionsPage />
+                    </Layout>
+                  </AdminRoute>
+                } />
+               
+                <Route path="/admin/general-ledger" element={
+                  <AdminRoute>
+                    <Layout>
+                      <GeneralLedgerPage />
+                    </Layout>
+                  </AdminRoute>
+                } />
+                
+                {/* Financial Settings */}
+                <Route path="/admin/interest-management" element={
+                  <AdminRoute>
+                    <Layout>
+                      <InterestManagementPage />
+                    </Layout>
+                  </AdminRoute>
+                } />
+                <Route path="/admin/fee-management" element={
+                  <AdminRoute>
+                    <Layout>
+                      <FeeManagementPage />
+                    </Layout>
+                  </AdminRoute>
+                } />
+               
+                
+                {/* Administration */}
                 <Route path="/admin/staff" element={
                   <AdminRoute>
                     <Layout>
                       <StaffPage />
-                    </Layout>
-                  </AdminRoute>
-                } />
-                <Route path="/admin/audit" element={
-                  <AdminRoute>
-                    <Layout>
-                      <AuditPage />
                     </Layout>
                   </AdminRoute>
                 } />
@@ -171,6 +195,25 @@ const App = () => (
                     </Layout>
                   </AdminRoute>
                 } />
+               <Route path="/admin/loan-products" element={
+  <AdminRoute>
+    <Layout>
+      <LoanProductsPage />
+    </Layout>
+  </AdminRoute>
+} />
+                
+                {/* Reports */}
+                <Route path="/admin/audit" element={
+                  <AdminRoute>
+                    <Layout>
+                      <AuditPage />
+                    </Layout>
+                  </AdminRoute>
+                } />
+               
+                
+                {/* System */}
                 <Route path="/admin/settings" element={
                   <AdminRoute>
                     <Layout>
@@ -178,6 +221,7 @@ const App = () => (
                     </Layout>
                   </AdminRoute>
                 } />
+              
                 
                 <Route path="*" element={<NotFound />} />
               </Routes>

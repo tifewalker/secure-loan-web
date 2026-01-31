@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -14,33 +13,41 @@ const LoginPage = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, user } = useAuth(); // Added user to check role after login
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
+  e.preventDefault();
+  setIsLoading(true);
 
-    try {
-      const success = await login(email, password);
-      if (success) {
-        toast({
-          title: "Login successful",
-          description: "Welcome back!",
-        });
-        navigate('/dashboard');
-       
-      } else {
-        toast({
-          title: "Login failed",
-          description: "Invalid email or password",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
+try {
+    const success = await login(email, password);
+    if (success) {
       toast({
-        title: "Error",
-        description: "An unexpected error occurred",
+        title: "Login successful",
+        description: "Welcome back!",
+      });
+      // Check localStorage IMMEDIATELY (no setTimeout needed)
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        const userData = JSON.parse(storedUser);
+        // Both admin and staff should go to admin dashboard
+        if (userData.role === 'admin' || userData.role === 'staff') {
+          navigate('/admin/dashboard');
+        } else {
+          navigate('/dashboard');
+        }
+      } else {
+        navigate('/admin/dashboard'); // Default to admin dashboard
+      }
+    }
+  } catch (error) {
+      // The error message from AuthContext is already user-friendly
+      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
+      
+      toast({
+        title: "Login failed",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -125,23 +132,6 @@ const LoginPage = () => {
                 </Link>
               </div>
             </form>
-
-            {/* Demo credentials */}
-            <div className="mt-6 pt-6 border-t border-gray-200">
-              <div className="text-xs text-gray-500 text-center mb-2">Demo Credentials:</div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="bg-gray-50 p-2 rounded">
-                  <div className="font-medium">User:</div>
-                  <div>user@demo.com</div>
-                  <div>password</div>
-                </div>
-                <div className="bg-gray-50 p-2 rounded">
-                  <div className="font-medium">Admin:</div>
-                  <div>admin@demo.com</div>
-                  <div>admin</div>
-                </div>
-              </div>
-            </div>
           </CardContent>
         </Card>
 
