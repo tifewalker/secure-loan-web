@@ -1,0 +1,16 @@
+export { default as AdminDashboardPage } from './AdminDashboardPage';
+export { default as AccountsPage } from './AccountsPage';
+export { default as ApplicationsPage } from './ApplicationsPage';
+export { default as AuditPage } from './AuditPage';
+export { default as CustomersPage } from './CustomersPage';
+export { default as DisbursementPage } from './DisbursementPage';
+export { default as FeeManagementPage } from './FeeManagementPage';
+export { default as GeneralLedgerPage } from './GeneralLedgerPage';
+export { default as InterestManagementPage } from './InterestManagementPage';
+export { default as LoanProductsPage } from './LoanProductsPage';
+export { default as ReviewPage } from './ReviewPage';
+export { default as RolesPage } from './RolesPage';
+export { default as SettingsPage } from './SettingsPage';
+export { default as StaffPage } from './StaffPage';
+export { default as TransactionsPage } from './TransactionsPage';
+export { default as ReportsPage } from './ReportsPage';
