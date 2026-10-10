@@ -10,7 +10,7 @@ import {
   FileText, Eye, Clock, CheckCircle, XCircle,
   Search, User, Calendar, DollarSign, TrendingUp,
   AlertCircle, RefreshCw, Loader2, Percent, Hash,
-  BanknoteIcon, MoreHorizontal, SlidersHorizontal,
+  BanknoteIcon, MoreHorizontal,
   ThumbsUp, ThumbsDown, ArrowLeft,
 } from 'lucide-react';
 import {
@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/table';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
-  DropdownMenuSeparator, DropdownMenuTrigger,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -42,7 +42,8 @@ const ReviewPage = () => {
     error,
     canViewApplications,
     fetchApplications,
-    updateApplicationStatus,
+    approveApplication,
+    rejectApplication,
     getStatusDisplay,
     getStatusColor,
     formatCurrency,
@@ -61,10 +62,8 @@ const ReviewPage = () => {
     alert(`${variant === 'destructive' ? '❌' : '✅'} ${title}\n${description}`);
   };
 
-  // Only pending/booked applications
-  const pendingApplications = applications.filter(app =>
-    app.status === 'pending' 
-  );
+  // Only pending applications
+  const pendingApplications = applications.filter(app => app.status === 'pending');
 
   const filteredApplications = pendingApplications.filter(app => {
     const customerName = app.customer || '';
@@ -79,8 +78,6 @@ const ReviewPage = () => {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'pending':
-      case 'booked':
-      case 'under-review':
         return <Clock className="size-3.5" />;
       case 'approved':
         return <CheckCircle className="size-3.5" />;
@@ -88,6 +85,10 @@ const ReviewPage = () => {
         return <XCircle className="size-3.5" />;
       case 'disbursed':
         return <TrendingUp className="size-3.5" />;
+      case 'closed':
+        return <XCircle className="size-3.5" />;
+      case 'defaulted':
+        return <AlertCircle className="size-3.5" />;
       default:
         return <Clock className="size-3.5" />;
     }
@@ -129,7 +130,9 @@ const ReviewPage = () => {
     if (!selectedApplication || !confirmAction) return;
     setIsSubmitting(true);
 
-    const result = await updateApplicationStatus(selectedApplication._id, confirmAction);
+    const result = confirmAction === 'approved'
+      ? await approveApplication(selectedApplication._id)
+      : await rejectApplication(selectedApplication._id);
 
     if (result.success) {
       showToast('Success', `Application ${confirmAction === 'approved' ? 'approved' : 'rejected'} successfully`);

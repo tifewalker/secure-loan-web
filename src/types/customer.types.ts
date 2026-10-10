@@ -1,3 +1,10 @@
+// ==================== CUSTOMER DOCUMENTS ====================
+export interface CustomerDocuments {
+  passport?: File | null;
+  nin?: File | null;
+  signature?: File | null;
+}
+
 // ==================== CUSTOMER TYPES ====================
 export interface Customer {
   _id: string;
@@ -67,7 +74,9 @@ export interface Customer {
   };
 }
 
+// ==================== CREATE CUSTOMER DATA ====================
 export interface CreateCustomerData {
+  // Personal Information
   title: string;
   firstName: string;
   lastName: string;
@@ -77,11 +86,15 @@ export interface CreateCustomerData {
   identificationType: string;
   issueDate: string;
   expiryDate: string;
+
+  // Address
   street: string;
   city: string;
   state: string;
   country: string;
   zipCode: string;
+
+  // Employment Details
   employerName: string;
   jobTitle: string;
   employmentType: string;
@@ -93,6 +106,8 @@ export interface CreateCustomerData {
   employmentState: string;
   employmentCountry: string;
   employmentZipCode: string;
+
+  // Next of Kin
   kinName: string;
   relationship: string;
   kinPhone: string;
@@ -102,10 +117,19 @@ export interface CreateCustomerData {
   kinState: string;
   kinCountry: string;
   kinZipCode: string;
+
+  // Banking Details
   bankName: string;
   accountNumber: string;
   accountName: string;
   accountType: string;
   bankBranch?: string;
+
+  // Metadata
   createdBy?: string;
+
+  // Documents (files)
+  passport?: File | null;
+  nin?: File | null;
+  signature?: File | null;
 }

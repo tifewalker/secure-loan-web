@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import {
-  FileText, Eye, Clock, CheckCircle, XCircle,
+  FileText, Clock, CheckCircle, XCircle,
   Search, User, Calendar, DollarSign, TrendingUp,
   AlertCircle, RefreshCw, Loader2, Percent, Hash,
   BanknoteIcon, MoreHorizontal, Wallet, ArrowLeft,
@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/table';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
-  DropdownMenuSeparator, DropdownMenuTrigger,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -41,7 +41,7 @@ const DisbursementPage = () => {
     error,
     canViewApplications,
     fetchApplications,
-    updateApplicationStatus,
+    disburseApplication,
     getStatusDisplay,
     getStatusColor,
     formatCurrency,
@@ -123,7 +123,7 @@ const DisbursementPage = () => {
     if (!selectedApplication) return;
     setIsSubmitting(true);
 
-    const result = await updateApplicationStatus(selectedApplication._id, 'disburse');
+    const result = await disburseApplication(selectedApplication._id);
 
     if (result.success) {
       showToast('Success', 'Loan disbursed successfully');
@@ -258,7 +258,7 @@ const DisbursementPage = () => {
                 <TableHead>Loan Details</TableHead>
                 <TableHead>Purpose</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Approved</TableHead>
+                <TableHead>Applied</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
             </TableHeader>

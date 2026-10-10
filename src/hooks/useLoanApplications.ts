@@ -211,23 +211,53 @@ export const useLoanApplications = () => {
     });
   };
 
-  const updateApplicationStatus = async (
-    applicationId: string,
-    newStatus: string
-  ): Promise<{ success: boolean; error?: string; data?: LoanApplication }> => {
-    setIsUpdating(true);
-    try {
-      const updated = await loanService.updateApplicationStatus(applicationId, newStatus);
-      setApplications(prev => prev.map(app => app._id === applicationId ? updated : app));
-      return { success: true, data: updated };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update application status';
-      return { success: false, error: errorMessage };
-    } finally {
-      setIsUpdating(false);
-    }
-  };
+ const approveApplication = async (
+  applicationId: string
+): Promise<{ success: boolean; error?: string; data?: LoanApplication }> => {
+  setIsUpdating(true);
+  try {
+    const updated = await loanService.approveApplication(applicationId);
+    setApplications(prev => prev.map(app => app._id === applicationId ? updated : app));
+    return { success: true, data: updated };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to approve application';
+    return { success: false, error: errorMessage };
+  } finally {
+    setIsUpdating(false);
+  }
+};
 
+const rejectApplication = async (
+  applicationId: string
+): Promise<{ success: boolean; error?: string; data?: LoanApplication }> => {
+  setIsUpdating(true);
+  try {
+    const updated = await loanService.rejectApplication(applicationId);
+    setApplications(prev => prev.map(app => app._id === applicationId ? updated : app));
+    return { success: true, data: updated };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to reject application';
+    return { success: false, error: errorMessage };
+  } finally {
+    setIsUpdating(false);
+  }
+};
+
+const disburseApplication = async (
+  applicationId: string
+): Promise<{ success: boolean; error?: string; data?: LoanApplication }> => {
+  setIsUpdating(true);
+  try {
+    const updated = await loanService.disburseApplication(applicationId);
+    setApplications(prev => prev.map(app => app._id === applicationId ? updated : app));
+    return { success: true, data: updated };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to disburse loan';
+    return { success: false, error: errorMessage };
+  } finally {
+    setIsUpdating(false);
+  }
+};
   // Filter applications by status for specific pages
   const getPendingApplications = () => {
     return applications.filter(app => app.status === 'pending');
@@ -273,7 +303,9 @@ export const useLoanApplications = () => {
     formatCurrency,
     getSummaryStats,
     searchApplications,
-    updateApplicationStatus,
+    approveApplication,
+  rejectApplication,
+  disburseApplication,
     getPendingApplications,
     getApprovedApplications,
     getDisbursedApplications,

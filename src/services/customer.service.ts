@@ -1,7 +1,7 @@
 import { fetchWithRetry, handleApiError } from './api-client';
 import { authFetch } from '@/contexts/auth-fetch';
-import { ERROR_MESSAGES } from '@/contexts/auth-constants';
 import type { Customer, CreateCustomerData, ApiResponse } from '@/types';
+import { getApiUrl, ERROR_MESSAGES, STORAGE_KEYS } from '@/contexts/auth-constants';
 
 export const customerService = {
   // Get all customers
@@ -116,16 +116,40 @@ export const customerService = {
   // Create new customer
   create: async (customerData: CreateCustomerData): Promise<ApiResponse<Customer>> => {
     try {
-      const response = await authFetch('api/customers/create', {
-        method: 'POST',
-        body: JSON.stringify(customerData)
+      // Extract files from customerData
+      const { passport, nin, signature, ...textFields } = customerData;
+
+      // Build FormData
+      const formData = new FormData();
+
+      // Append all text fields
+      Object.entries(textFields).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          formData.append(key, String(value));
+        }
       });
-      
+
+      // Append files if present
+      if (passport) formData.append('passport', passport);
+      if (nin) formData.append('nin', nin);
+      if (signature) formData.append('signature', signature);
+
+      // Use plain fetch (not authFetch with JSON content-type) since we're sending FormData
+      const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+      const response = await fetch(getApiUrl('api/customers/create'), {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          // Don't set Content-Type — browser sets it automatically for FormData
+        },
+        body: formData,
+      });
+
       if (!response.ok) {
         const errorResult = await response.json().catch(() => ({}));
         throw new Error(errorResult.message || ERROR_MESSAGES.REGISTRATION_FAILED);
       }
-      
+
       const result = await response.json();
       return { success: true, data: result };
     } catch (error) {

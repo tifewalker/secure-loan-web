@@ -110,41 +110,63 @@ export const loanService = {
     }
   },
 
-  // Update application status
-updateApplicationStatus: async (applicationId: string, newStatus: string): Promise<LoanApplication> => {
+// Approve a loan application
+approveApplication: async (applicationId: string): Promise<LoanApplication> => {
   try {
-    const statusMap: Record<string, string> = {
-      'pending': 'pending',
-      'booked': 'booked',
-      'under-review': 'pending',
-      'approve': 'approve',
-      'approved': 'approve',
-      'disburse': 'disburse',
-      'disbursed': 'disburse',
-      'reject': 'rejected',
-      'rejected': 'rejected',
-      'closed': 'closed',
-      'defaulted': 'defaulted',
-    };
-    
-    const backendStatus = statusMap[newStatus] || newStatus;
-    
-    const response = await authFetch(`api/loan/v1/${applicationId}/status`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status: backendStatus })
+    const response = await authFetch(`api/loan/v1/${applicationId}/approve`, {
+      method: 'POST',
     });
 
     if (!response.ok) {
       const errorResult = await response.json().catch(() => ({}));
-      throw new Error(errorResult.message || 'Failed to update application status');
+      throw new Error(errorResult.message || 'Failed to approve application');
     }
 
     const result = await response.json();
     return loanService.mapLoanToApplication(result);
-    
   } catch (error) {
-    console.error('Error updating application status:', error);
-    return handleApiError(error, 'Failed to update application status');
+    console.error('Error approving application:', error);
+    return handleApiError(error, 'Failed to approve application');
+  }
+},
+
+// Reject a loan application
+rejectApplication: async (applicationId: string): Promise<LoanApplication> => {
+  try {
+    const response = await authFetch(`api/loan/v1/${applicationId}/reject`, {
+      method: 'POST',
+    });
+
+    if (!response.ok) {
+      const errorResult = await response.json().catch(() => ({}));
+      throw new Error(errorResult.message || 'Failed to reject application');
+    }
+
+    const result = await response.json();
+    return loanService.mapLoanToApplication(result);
+  } catch (error) {
+    console.error('Error rejecting application:', error);
+    return handleApiError(error, 'Failed to reject application');
+  }
+},
+
+// Disburse a loan (still uses the status endpoint — confirm with backend)
+disburseApplication: async (applicationId: string): Promise<LoanApplication> => {
+  try {
+    const response = await authFetch(`api/loan/v1/${applicationId}/disburse`, {
+      method: 'POST',
+    });
+
+    if (!response.ok) {
+      const errorResult = await response.json().catch(() => ({}));
+      throw new Error(errorResult.message || 'Failed to disburse loan');
+    }
+
+    const result = await response.json();
+    return loanService.mapLoanToApplication(result);
+  } catch (error) {
+    console.error('Error disbursing loan:', error);
+    return handleApiError(error, 'Failed to disburse loan');
   }
 },
 
