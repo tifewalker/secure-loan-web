@@ -87,13 +87,12 @@ const ApplicationsPage = () => {
     switch (status) {
       case 'pending':
       case 'booked':
+      case 'under-review':
         return <Clock className="size-3.5" />;
       case 'approved':
         return <CheckCircle className="size-3.5" />;
       case 'rejected':
         return <XCircle className="size-3.5" />;
-      case 'under-review':
-        return <FileText className="size-3.5" />;
       case 'disbursed':
         return <TrendingUp className="size-3.5" />;
       default:
@@ -205,8 +204,7 @@ const ApplicationsPage = () => {
 
   const statCards = [
     { label: 'Total', value: summaryStats.total, sub: 'Applications', icon: FileText },
-    { label: 'Pending', value: summaryStats.pending, sub: 'Awaiting review', icon: Clock },
-    { label: 'Under review', value: summaryStats.underReview, sub: 'In progress', icon: FileText },
+    { label: 'Under review', value: summaryStats.underReview, sub: 'In progress', icon: Clock },
     { label: 'Approved', value: summaryStats.approved, sub: 'Ready for disbursement', icon: CheckCircle },
     { label: 'Disbursed', value: summaryStats.disbursed, sub: 'Active loans', icon: TrendingUp },
     { label: 'Total amount', value: formatCurrency(summaryStats.totalAmount), sub: 'All applications', icon: DollarSign },
@@ -241,7 +239,7 @@ const ApplicationsPage = () => {
       </div>
 
       {/* Compact stat strip */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {statCards.map(({ label, value, sub, icon: Icon }) => (
           <Card key={label} className="border-muted-foreground/10 shadow-none">
             <CardContent className="p-4">
@@ -256,7 +254,7 @@ const ApplicationsPage = () => {
         ))}
       </div>
 
-      {/* Filter bar — Tasks-table style */}
+      {/* Filter bar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative w-full sm:w-72">
@@ -275,8 +273,6 @@ const ApplicationsPage = () => {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All status</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="booked">Booked</SelectItem>
               <SelectItem value="under-review">Under Review</SelectItem>
               <SelectItem value="approved">Approved</SelectItem>
               <SelectItem value="rejected">Rejected</SelectItem>

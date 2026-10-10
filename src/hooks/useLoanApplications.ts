@@ -132,24 +132,46 @@ export const useLoanApplications = () => {
     }
   };
 
+  /**
+   * Status display mapping
+   * Backend statuses: pending, booked, approve, disburse, closed, defaulted
+   * Frontend normalizes: booked → pending, approve → approved, disburse → disbursed
+   */
   const getStatusDisplay = (status: string): string => {
     switch (status) {
-      case 'booked': return 'Pending';
-      case 'under-review': return 'Under Review';
-      case 'disbursed': return 'Disbursed';
-      default: return status.charAt(0).toUpperCase() + status.slice(1);
+      case 'pending':
+        return 'Under Review';
+      case 'approved':
+        return 'Approved';
+      case 'rejected':
+        return 'Rejected';
+      case 'disbursed':
+        return 'Disbursed';
+      case 'closed':
+        return 'Closed';
+      case 'defaulted':
+        return 'Defaulted';
+      default:
+        return status.charAt(0).toUpperCase() + status.slice(1);
     }
   };
 
   const getStatusColor = (status: string): string => {
     switch (status) {
       case 'pending':
-      case 'booked': return 'text-yellow-600 bg-yellow-100 border-yellow-200';
-      case 'approved': return 'text-green-600 bg-green-100 border-green-200';
-      case 'rejected': return 'text-red-600 bg-red-100 border-red-200';
-      case 'under-review': return 'text-blue-600 bg-blue-100 border-blue-200';
-      case 'disbursed': return 'text-purple-600 bg-purple-100 border-purple-200';
-      default: return 'text-gray-600 bg-gray-100 border-gray-200';
+        return 'text-yellow-600 bg-yellow-100 border-yellow-200';
+      case 'approved':
+        return 'text-green-600 bg-green-100 border-green-200';
+      case 'rejected':
+        return 'text-red-600 bg-red-100 border-red-200';
+      case 'disbursed':
+        return 'text-purple-600 bg-purple-100 border-purple-200';
+      case 'closed':
+        return 'text-gray-600 bg-gray-100 border-gray-200';
+      case 'defaulted':
+        return 'text-red-700 bg-red-50 border-red-300';
+      default:
+        return 'text-gray-600 bg-gray-100 border-gray-200';
     }
   };
 
@@ -162,27 +184,61 @@ export const useLoanApplications = () => {
     }).format(amount);
   };
 
-  const getSummaryStats = () => ({
-    total: applications.length,
-    pending: applications.filter(app => app.status === 'pending').length,
-    underReview: applications.filter(app => app.status === 'under-review').length,
-    approved: applications.filter(app => app.status === 'approved').length,
-    disbursed: applications.filter(app => app.status === 'disbursed').length,
-    totalAmount: applications.reduce((sum, app) => sum + app.amount, 0),
-  });
+  const getSummaryStats = () => {
+    return {
+      total: applications.length,
+      underReview: applications.filter(app => app.status === 'pending').length,
+      approved: applications.filter(app => app.status === 'approved').length,
+      disbursed: applications.filter(app => app.status === 'disbursed').length,
+      rejected: applications.filter(app => app.status === 'rejected').length,
+      closed: applications.filter(app => app.status === 'closed').length,
+      defaulted: applications.filter(app => app.status === 'defaulted').length,
+      totalAmount: applications.reduce((sum, app) => sum + app.amount, 0),
+    };
+  };
 
   const searchApplications = (searchTerm: string, statusFilter: string) => {
     return applications.filter(app => {
       const customerName = app.customer || '';
-      const matchesSearch = 
+      const matchesSearch =
         customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (app.purpose && app.purpose.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (app.customerId && app.customerId.toLowerCase().includes(searchTerm.toLowerCase()));
-      
+
       const matchesStatus = statusFilter === 'all' || app.status === statusFilter;
-      
+
       return matchesSearch && matchesStatus;
     });
+  };
+
+  const updateApplicationStatus = async (
+    applicationId: string,
+    newStatus: string
+  ): Promise<{ success: boolean; error?: string; data?: LoanApplication }> => {
+    setIsUpdating(true);
+    try {
+      const updated = await loanService.updateApplicationStatus(applicationId, newStatus);
+      setApplications(prev => prev.map(app => app._id === applicationId ? updated : app));
+      return { success: true, data: updated };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update application status';
+      return { success: false, error: errorMessage };
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  // Filter applications by status for specific pages
+  const getPendingApplications = () => {
+    return applications.filter(app => app.status === 'pending');
+  };
+
+  const getApprovedApplications = () => {
+    return applications.filter(app => app.status === 'approved');
+  };
+
+  const getDisbursedApplications = () => {
+    return applications.filter(app => app.status === 'disbursed');
   };
 
   return {
@@ -217,5 +273,9 @@ export const useLoanApplications = () => {
     formatCurrency,
     getSummaryStats,
     searchApplications,
+    updateApplicationStatus,
+    getPendingApplications,
+    getApprovedApplications,
+    getDisbursedApplications,
   };
 };

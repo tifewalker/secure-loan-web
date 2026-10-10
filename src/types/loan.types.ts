@@ -6,7 +6,7 @@ export interface LoanApplication {
   customerId: string;
   amount: number;
   purpose: string;
-  status: 'pending' | 'under-review' | 'approved' | 'rejected' | 'disbursed';
+  status: 'pending' | 'approved' | 'rejected' | 'disbursed' | 'closed' | 'defaulted';
   appliedDate: string;
   creditScore: number;
   monthlyIncome: number;

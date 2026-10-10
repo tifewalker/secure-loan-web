@@ -5,21 +5,23 @@ import type { LoanApplication, LoanProduct, CreateLoanProductData } from '@/type
 
 // Helper function to map API status to application status
 const mapLoanStatus = (status: string | undefined | null): LoanApplication['status'] => {
-  if (!status) {
-    return 'pending';
-  }
+  if (!status) return 'pending';
   
   const statusMap: Record<string, LoanApplication['status']> = {
-    'booked': 'pending',
     'pending': 'pending',
+    'booked': 'pending',
     'submitted': 'pending',
-    'under_review': 'under-review',
-    'review': 'under-review',
+    'under_review': 'pending',
+    'review': 'pending',
+    'approve': 'approved',
     'approved': 'approved',
+    'reject': 'rejected',
     'rejected': 'rejected',
+    'disburse': 'disbursed',
     'disbursed': 'disbursed',
-    'active': 'approved',
-    'closed': 'disbursed'
+    'active': 'disbursed',
+    'closed': 'closed',
+    'defaulted': 'defaulted',
   };
   
   return statusMap[status.toLowerCase()] || 'pending';
@@ -109,36 +111,42 @@ export const loanService = {
   },
 
   // Update application status
-  updateApplicationStatus: async (applicationId: string, newStatus: string): Promise<LoanApplication> => {
-    try {
-      const statusMap: Record<string, string> = {
-        'pending': 'booked',
-        'under-review': 'under_review',
-        'approved': 'approved',
-        'rejected': 'rejected',
-        'disbursed': 'disbursed'
-      };
-      
-      const backendStatus = statusMap[newStatus] || newStatus;
-      
-      const response = await authFetch(`api/loan/v1/${applicationId}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: backendStatus })
-      });
+updateApplicationStatus: async (applicationId: string, newStatus: string): Promise<LoanApplication> => {
+  try {
+    const statusMap: Record<string, string> = {
+      'pending': 'pending',
+      'booked': 'booked',
+      'under-review': 'pending',
+      'approve': 'approve',
+      'approved': 'approve',
+      'disburse': 'disburse',
+      'disbursed': 'disburse',
+      'reject': 'rejected',
+      'rejected': 'rejected',
+      'closed': 'closed',
+      'defaulted': 'defaulted',
+    };
+    
+    const backendStatus = statusMap[newStatus] || newStatus;
+    
+    const response = await authFetch(`api/loan/v1/${applicationId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: backendStatus })
+    });
 
-      if (!response.ok) {
-        const errorResult = await response.json().catch(() => ({}));
-        throw new Error(errorResult.message || 'Failed to update application status');
-      }
-
-      const result = await response.json();
-      return loanService.mapLoanToApplication(result);
-      
-    } catch (error) {
-      console.error('Error updating application status:', error);
-      return handleApiError(error, 'Failed to update application status');
+    if (!response.ok) {
+      const errorResult = await response.json().catch(() => ({}));
+      throw new Error(errorResult.message || 'Failed to update application status');
     }
-  },
+
+    const result = await response.json();
+    return loanService.mapLoanToApplication(result);
+    
+  } catch (error) {
+    console.error('Error updating application status:', error);
+    return handleApiError(error, 'Failed to update application status');
+  }
+},
 
   // Helper method to map loan to application
   mapLoanToApplication: (loanData: Record<string, unknown>): LoanApplication => {
