@@ -38,7 +38,7 @@ export const reportService = {
   // Get closed loans
   getClosedLoans: async (): Promise<LoanReport[]> => {
     try {
-      const response = await fetchWithRetry('api/report/v1/loan/closed/all', {}, 1);
+      const response = await fetchWithRetry('api/report/v1/closed/all', {}, 1);
       
       if (!response.ok) {
         const errorResult = await response.json().catch(() => ({}));
@@ -65,7 +65,7 @@ export const reportService = {
   // Get active loans
   getActiveLoans: async (): Promise<LoanReport[]> => {
     try {
-      const response = await fetchWithRetry('api/report/v1loan/active/all', {}, 1);
+      const response = await fetchWithRetry('api/report/v1/active/all', {}, 1);
       
       if (!response.ok) {
         const errorResult = await response.json().catch(() => ({}));
@@ -92,7 +92,7 @@ export const reportService = {
   // Get disbursed loans
   getDisbursedLoans: async (): Promise<LoanReport[]> => {
     try {
-      const response = await fetchWithRetry('api/report/v1loan/disbursed/all', {}, 1);
+      const response = await fetchWithRetry('api/report/v1/disbursed/all', {}, 1);
       
       if (!response.ok) {
         const errorResult = await response.json().catch(() => ({}));
