@@ -16,26 +16,3 @@ export const ERROR_MESSAGES = {
   SERVER_ERROR: 'Something went wrong on our end. Please try again in a few moments.',
   UNKNOWN_ERROR: 'An unexpected error occurred. Please try again.',
 } as const;
-
-// Storage keys for consistency
-export const STORAGE_KEYS = {
-  TOKEN: 'token',
-  REFRESH_TOKEN: 'refreshToken',
-  USER: 'user',
-} as const;
-
-// API endpoints
-export const API_ENDPOINTS = {
-  LOGIN: 'api/users/signin',
-  REGISTER: 'api/users/create',
-  CURRENT_USER: 'api/users/me',
-} as const;
-
-// Get API URL from environment variable
-export const API_URL = import.meta.env.VITE_API_URL;
-
-// Helper function to get API URL
-export const getApiUrl = (endpoint: string): string => {
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
-  return `${API_URL}${cleanEndpoint}`;
-};

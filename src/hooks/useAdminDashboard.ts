@@ -1,211 +1,117 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { customerService } from '@/services/customer.service';
-import { loanService } from '@/services/loan.service';
-import { staffService } from '@/services/staff.service';
-import { roleService } from '@/services/role.service';
-import type { Customer, LoanApplication, Staff, Role } from '../types';
+import { useMemo } from 'react';
+import { getErrorMessage, useCustomers, useLoanReport, useRoles, useUsers, type Customer, type Role, type UserWithRoles } from '@/api';
+import { useAuth } from '@/contexts/AuthContext';
+import { isDisbursed, toLoanRow, type LoanRow } from '@/components/loans/loan-utils';
 
 export interface AdminDashboardData {
   customers: Customer[];
-  applications: LoanApplication[];
-  staff: Staff[];
+  applications: LoanRow[];
+  staff: UserWithRoles[];
   roles: Role[];
 }
 
+const dateOf = (app: LoanRow) => new Date(app.createdAt || app.appliedDate);
+const isActiveStaff = (s: UserWithRoles) => (s.status ? s.status === 'active' : !!s.isActive);
+
 export const useAdminDashboard = () => {
-  const [data, setData] = useState<AdminDashboardData>({
-    customers: [],
-    applications: [],
-    staff: [],
-    roles: [],
-  });
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const hasFetchedRef = useRef(false);
+  const { isAuthenticated, hasPermission } = useAuth();
 
-  const fetchDashboardData = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  // Each source is optional: sections the user cannot see just stay empty.
+  const customersQuery = useCustomers({ enabled: isAuthenticated && hasPermission('view_customers'), retry: false });
+  const loansQuery = useLoanReport('all', { enabled: isAuthenticated, retry: false });
+  const staffQuery = useUsers({ enabled: isAuthenticated && hasPermission('view_users'), retry: false });
+  const rolesQuery = useRoles({ enabled: isAuthenticated, retry: false });
 
-    try {
-      const [customers, applications, staff, roles] = await Promise.all([
-        customerService.getAll().catch(() => []),
-        loanService.getApplications().catch(() => []),
-        staffService.getAll().catch(() => []),
-        roleService.getAll().catch(() => []),
-      ]);
+  const data: AdminDashboardData = useMemo(
+    () => ({
+      customers: customersQuery.data ?? [],
+      applications: (loansQuery.data ?? []).map(toLoanRow),
+      staff: staffQuery.data ?? [],
+      roles: rolesQuery.data ?? [],
+    }),
+    [customersQuery.data, loansQuery.data, staffQuery.data, rolesQuery.data],
+  );
 
-      setData({
-        customers: customers || [],
-        applications: applications || [],
-        staff: staff || [],
-        roles: roles || [],
-      });
-    } catch (err) {
-      console.error('Failed to fetch dashboard data:', err);
-      setError('Failed to load dashboard data');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  const isLoading = [customersQuery, loansQuery, staffQuery, rolesQuery].some((q) => q.isLoading);
+  const error = loansQuery.error ? getErrorMessage(loansQuery.error, 'Failed to load dashboard data') : null;
 
-  useEffect(() => {
-    if (hasFetchedRef.current) return;
-    hasFetchedRef.current = true;
-    fetchDashboardData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const fetchDashboardData = () =>
+    Promise.all([customersQuery, loansQuery, staffQuery, rolesQuery].map((q) => q.refetch()));
 
   // ==================== STATS CALCULATIONS ====================
   const getStats = () => {
     const { customers, applications, staff } = data;
+    const disbursed = applications.filter((app) => isDisbursed(app.status));
+    const live = applications.filter((app) => app.status === 'active' || app.status === 'defaulted');
 
-    const totalCustomers = customers.length;
-    const activeCustomers = customers.filter(c => c.status === 'active').length;
-
-    const activeLoans = applications.filter(
-      app => app.status === 'disbursed'
-    ).length;
-
-    const pendingReview = applications.filter(
-      app => app.status === 'pending'
-    ).length;
-
-    const approved = applications.filter(
-      app => app.status === 'approved'
-    ).length;
-
-    const totalDisbursed = applications
-      .filter(app => app.status === 'disbursed' || app.status === 'closed')
-      .reduce((sum, app) => sum + (app.amount || 0), 0);
-
-    const totalPortfolio = applications
-      .filter(app => app.status === 'disbursed')
-      .reduce((sum, app) => sum + (app.amount || 0), 0);
-
-    const totalInterestEarned = applications
-      .filter(app => app.status === 'disbursed' || app.status === 'closed')
-      .reduce((sum, app) => {
-        const interest = (app.totalRepayable || 0) - (app.amount || 0);
-        return sum + interest;
-      }, 0);
-
-    // Growth calculation — this month vs last month
     const now = new Date();
-    const thisMonth = applications.filter(app => {
-      const d = new Date(app.createdAt || app.appliedDate);
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    }).length;
-
-    const lastMonth = applications.filter(app => {
-      const d = new Date(app.createdAt || app.appliedDate);
-      const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      return d.getMonth() === lastMonthDate.getMonth() &&
-             d.getFullYear() === lastMonthDate.getFullYear();
-    }).length;
-
-    const growthRate = lastMonth > 0
-      ? ((thisMonth - lastMonth) / lastMonth) * 100
-      : thisMonth > 0 ? 100 : 0;
+    const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const inMonth = (d: Date, ref: Date) => d.getMonth() === ref.getMonth() && d.getFullYear() === ref.getFullYear();
+    const thisMonth = applications.filter((app) => inMonth(dateOf(app), now)).length;
+    const lastMonth = applications.filter((app) => inMonth(dateOf(app), lastMonthDate)).length;
+    const growthRate = lastMonth > 0 ? ((thisMonth - lastMonth) / lastMonth) * 100 : thisMonth > 0 ? 100 : 0;
 
     return {
-      totalCustomers,
-      activeCustomers,
-      activeLoans,
-      pendingReview,
-      approved,
-      totalDisbursed,
-      totalPortfolio,
-      totalInterestEarned,
+      totalCustomers: customers.length,
+      activeCustomers: customers.filter((c) => c.status === 'active').length,
+      activeLoans: live.length,
+      pendingReview: applications.filter((app) => app.status === 'pending').length,
+      approved: applications.filter((app) => app.status === 'approved').length,
+      totalDisbursed: disbursed.reduce((sum, app) => sum + app.amount, 0),
+      // Money still owed on live loans.
+      totalPortfolio: live.reduce((sum, app) => sum + app.outstanding, 0),
+      totalInterestEarned: disbursed.reduce((sum, app) => sum + (app.loan.interestAmount ?? 0), 0),
       thisMonth,
       lastMonth,
       growthRate: Math.round(growthRate * 10) / 10,
       totalStaff: staff.length,
-      activeStaff: staff.filter(s => s.isActive).length,
+      activeStaff: staff.filter(isActiveStaff).length,
       totalRoles: data.roles.length,
     };
   };
 
   // ==================== RECENT APPLICATIONS ====================
-  const getRecentApplications = (limit = 5) => {
-    return [...data.applications]
-      .sort((a, b) => {
-        const dateA = new Date(a.createdAt || a.appliedDate).getTime();
-        const dateB = new Date(b.createdAt || b.appliedDate).getTime();
-        return dateB - dateA;
-      })
-      .slice(0, limit);
-  };
+  const getRecentApplications = (limit = 5) =>
+    [...data.applications].sort((a, b) => dateOf(b).getTime() - dateOf(a).getTime()).slice(0, limit);
 
   // ==================== LOAN STATUS DISTRIBUTION ====================
   const getStatusDistribution = () => {
-    const { applications } = data;
-    const statuses: Record<string, number> = {
-      pending: 0,
-      approved: 0,
-      disbursed: 0,
-      rejected: 0,
-      closed: 0,
-      defaulted: 0,
-    };
-
-    applications.forEach(app => {
-      if (statuses[app.status] !== undefined) {
-        statuses[app.status]++;
-      }
+    const statuses: Record<string, number> = { pending: 0, approved: 0, disbursed: 0, rejected: 0, closed: 0, defaulted: 0 };
+    data.applications.forEach((app) => {
+      // `active` (post-disbursement) is shown in the "disbursed" bucket.
+      const key = app.status === 'active' ? 'disbursed' : app.status;
+      if (statuses[key] !== undefined) statuses[key]++;
     });
-
     return statuses;
   };
 
   // ==================== MONTHLY TREND (LAST 6 MONTHS) ====================
   const getMonthlyTrend = () => {
-    const months: { month: string; applications: number; amount: number }[] = [];
     const now = new Date();
-
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthLabel = d.toLocaleString('en-US', { month: 'short' });
-      const year = d.getFullYear();
-      const month = d.getMonth();
-
-      const monthApps = data.applications.filter(app => {
-        const date = new Date(app.createdAt || app.appliedDate);
-        return date.getMonth() === month && date.getFullYear() === year;
+    return Array.from({ length: 6 }, (_, idx) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (5 - idx), 1);
+      const monthApps = data.applications.filter((app) => {
+        const date = dateOf(app);
+        return date.getMonth() === d.getMonth() && date.getFullYear() === d.getFullYear();
       });
-
-      months.push({
-        month: monthLabel,
+      return {
+        month: d.toLocaleString('en-US', { month: 'short' }),
         applications: monthApps.length,
-        amount: monthApps.reduce((sum, app) => sum + (app.amount || 0), 0),
-      });
-    }
-
-    return months;
+        amount: monthApps.reduce((sum, app) => sum + app.amount, 0),
+      };
+    });
   };
 
   // ==================== TOP CUSTOMERS ====================
   const getTopCustomers = (limit = 5) => {
-    const customerMap = new Map<string, {
-      id: string;
-      name: string;
-      totalAmount: number;
-      loanCount: number;
-    }>();
-
-    data.applications.forEach(app => {
+    const customerMap = new Map<string, { id: string; name: string; totalAmount: number; loanCount: number }>();
+    data.applications.forEach((app) => {
       const id = app.customerId || 'unknown';
-      const name = app.customer || 'Unknown';
-
-      if (!customerMap.has(id)) {
-        customerMap.set(id, { id, name, totalAmount: 0, loanCount: 0 });
-      }
-
-      const entry = customerMap.get(id)!;
-      entry.totalAmount += app.amount || 0;
+      const entry = customerMap.get(id) ?? { id, name: app.customer || 'Unknown', totalAmount: 0, loanCount: 0 };
+      entry.totalAmount += app.amount;
       entry.loanCount += 1;
+      customerMap.set(id, entry);
     });
-
     return Array.from(customerMap.values())
       .sort((a, b) => b.totalAmount - a.totalAmount)
       .slice(0, limit);
@@ -214,20 +120,13 @@ export const useAdminDashboard = () => {
   // ==================== PORTFOLIO BY PRODUCT ====================
   const getPortfolioByProduct = () => {
     const productMap = new Map<string, { name: string; value: number; count: number }>();
-
-    data.applications.forEach(app => {
+    data.applications.forEach((app) => {
       const productId = app.loanProductId || 'unknown';
-      const productName = app.purpose || 'Other';
-
-      if (!productMap.has(productId)) {
-        productMap.set(productId, { name: productName, value: 0, count: 0 });
-      }
-
-      const entry = productMap.get(productId)!;
-      entry.value += app.amount || 0;
+      const entry = productMap.get(productId) ?? { name: app.productName || 'Other', value: 0, count: 0 };
+      entry.value += app.amount;
       entry.count += 1;
+      productMap.set(productId, entry);
     });
-
     return Array.from(productMap.values())
       .sort((a, b) => b.value - a.value)
       .slice(0, 6);

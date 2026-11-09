@@ -29,7 +29,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { format, formatDistanceToNow } from 'date-fns';
 import { useLoanApplications } from '@/hooks/useLoanApplications';
-import type { LoanApplication } from '../../types';
+import { toast } from '@/hooks/use-toast';
+import { EditLoanTermsDialog } from '@/components/loans/EditLoanTermsDialog';
+import { Pencil } from 'lucide-react';
+import type { LoanRow } from '@/components/loans/loan-utils';
 
 const ReviewPage = () => {
   const {
@@ -40,7 +43,11 @@ const ReviewPage = () => {
     applications,
     loading,
     error,
-    canViewApplications,
+    canReviewApplications,
+    pendingQueue,
+    canApproveLoans,
+    canRejectLoans,
+    canUpdateApplications,
     fetchApplications,
     approveApplication,
     rejectApplication,
@@ -48,28 +55,29 @@ const ReviewPage = () => {
     getStatusColor,
     formatCurrency,
     getSummaryStats,
-  } = useLoanApplications();
+  } = useLoanApplications({ withPendingQueue: true });
 
   const [searchTerm, setSearchTerm] = useState('');
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
-  const [selectedApplication, setSelectedApplication] = useState<LoanApplication | null>(null);
+  const [selectedApplication, setSelectedApplication] = useState<LoanRow | null>(null);
+  const [loanToEdit, setLoanToEdit] = useState<LoanRow | null>(null);
   const [reviewNote, setReviewNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'approved' | 'rejected' | null>(null);
 
   const showToast = (title: string, description: string, variant: 'default' | 'destructive' = 'default') => {
-    console.log(`${variant === 'destructive' ? '❌' : '✅'} ${title}: ${description}`);
-    alert(`${variant === 'destructive' ? '❌' : '✅'} ${title}\n${description}`);
+    toast({ title, description, variant });
   };
 
   // Only pending applications
-  const pendingApplications = applications.filter(app => app.status === 'pending');
+  const pendingApplications = pendingQueue;
 
   const filteredApplications = pendingApplications.filter(app => {
     const customerName = app.customer || '';
     return (
       customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (app.purpose && app.purpose.toLowerCase().includes(searchTerm.toLowerCase()))
+      (app.purpose && app.purpose.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      app.productName.toLowerCase().includes(searchTerm.toLowerCase())
     );
   });
 
@@ -110,7 +118,7 @@ const ReviewPage = () => {
     }
   };
 
-  const handleOpenReview = (app: LoanApplication) => {
+  const handleOpenReview = (app: LoanRow) => {
     setSelectedApplication(app);
     setReviewNote('');
     setViewDialogOpen(true);
@@ -123,6 +131,10 @@ const ReviewPage = () => {
 
   const handleReject = () => {
     if (!selectedApplication) return;
+    if (!reviewNote.trim()) {
+      showToast('Reason required', 'Add a review note — it is recorded as the rejection reason.', 'destructive');
+      return;
+    }
     setConfirmAction('rejected');
   };
 
@@ -131,8 +143,8 @@ const ReviewPage = () => {
     setIsSubmitting(true);
 
     const result = confirmAction === 'approved'
-      ? await approveApplication(selectedApplication._id)
-      : await rejectApplication(selectedApplication._id);
+      ? await approveApplication(selectedApplication._id, reviewNote.trim())
+      : await rejectApplication(selectedApplication._id, reviewNote.trim());
 
     if (result.success) {
       showToast('Success', `Application ${confirmAction === 'approved' ? 'approved' : 'rejected'} successfully`);
@@ -170,7 +182,7 @@ const ReviewPage = () => {
     );
   }
 
-  if (!canViewApplications()) {
+  if (!canReviewApplications()) {
     return (
       <div className="flex h-64 items-center justify-center">
         <div className="text-center">
@@ -199,7 +211,7 @@ const ReviewPage = () => {
             Review and approve pending loan applications
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={fetchApplications} disabled={loading}>
+        <Button variant="outline" size="sm" onClick={() => fetchApplications()} disabled={loading}>
           <RefreshCw className="mr-2 size-4" />
           Refresh
         </Button>
@@ -247,7 +259,7 @@ const ReviewPage = () => {
           <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
             <AlertCircle className="size-8 text-destructive" />
             <p className="text-sm text-destructive">{error}</p>
-            <Button variant="outline" size="sm" onClick={fetchApplications}>Retry</Button>
+            <Button variant="outline" size="sm" onClick={() => fetchApplications()}>Retry</Button>
           </div>
         ) : filteredApplications.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
@@ -408,16 +420,28 @@ const ReviewPage = () => {
                       {selectedApplication.requestedTerm} {selectedApplication.tenureUnit || 'months'}
                     </p>
                   </div>
-                  {selectedApplication.interestRate && (
+                  {selectedApplication.interestRate != null && (
                     <div>
                       <p className="text-sm text-muted-foreground">Interest Rate</p>
                       <p className="font-medium">{selectedApplication.interestRate}%</p>
                     </div>
                   )}
-                  {selectedApplication.creditScore !== undefined && (
+                  {selectedApplication.productName && (
                     <div>
-                      <p className="text-sm text-muted-foreground">Credit Score</p>
-                      <p className="font-medium">{selectedApplication.creditScore}</p>
+                      <p className="text-sm text-muted-foreground">Loan Product</p>
+                      <p className="font-medium">{selectedApplication.productName}</p>
+                    </div>
+                  )}
+                  {selectedApplication.totalRepayable != null && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Repayable</p>
+                      <p className="font-medium">{formatCurrency(selectedApplication.totalRepayable)}</p>
+                    </div>
+                  )}
+                  {!!selectedApplication.loan.totalFees && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Fees ({selectedApplication.loan.feeTreatment?.replace('_', ' ')})</p>
+                      <p className="font-medium">{formatCurrency(selectedApplication.loan.totalFees)}</p>
                     </div>
                   )}
                   <div className="col-span-2">
@@ -431,7 +455,7 @@ const ReviewPage = () => {
 
               {/* Review Note */}
               <div>
-                <Label htmlFor="reviewNote">Review Notes (Optional)</Label>
+                <Label htmlFor="reviewNote">Review Notes (required to reject)</Label>
                 <Textarea
                   id="reviewNote"
                   value={reviewNote}
@@ -453,22 +477,32 @@ const ReviewPage = () => {
               <ArrowLeft className="mr-2 size-4" />
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleReject}
-              disabled={isSubmitting}
-            >
-              <ThumbsDown className="mr-2 size-4" />
-              Reject
-            </Button>
-            <Button
-              onClick={handleApprove}
-              disabled={isSubmitting}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              <ThumbsUp className="mr-2 size-4" />
-              Approve
-            </Button>
+            {selectedApplication && canUpdateApplications() && (
+              <Button variant="outline" onClick={() => setLoanToEdit(selectedApplication)} disabled={isSubmitting}>
+                <Pencil className="mr-2 size-4" />
+                Edit Terms
+              </Button>
+            )}
+            {canRejectLoans() && (
+              <Button
+                variant="destructive"
+                onClick={handleReject}
+                disabled={isSubmitting}
+              >
+                <ThumbsDown className="mr-2 size-4" />
+                Reject
+              </Button>
+            )}
+            {canApproveLoans() && (
+              <Button
+                onClick={handleApprove}
+                disabled={isSubmitting}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                <ThumbsUp className="mr-2 size-4" />
+                Approve
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -521,6 +555,11 @@ const ReviewPage = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <EditLoanTermsDialog
+        loan={loanToEdit}
+        onOpenChange={(open) => !open && setLoanToEdit(null)}
+        onSaved={(row) => setSelectedApplication(row)}
+      />
     </div>
   );
 };

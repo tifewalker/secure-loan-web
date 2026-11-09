@@ -1,164 +1,78 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useMemo } from 'react';
+import {
+  getErrorMessage,
+  useCreateGLAccount,
+  useDeleteGLAccount,
+  useGLAccounts as useGLAccountsQuery,
+  useToggleGLAccountStatus,
+  useUpdateGLAccount,
+  type CreateGLAccountRequest,
+  type UpdateGLAccountRequest,
+} from '@/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { useDirectPermissions } from '@/hooks/useDirectPermissions';
-import { glAccountService } from '@/services/gl-account.service';
-import type { GLAccount, CreateGLAccountData, UpdateGLAccountData } from '../types';
+import { toast } from '@/hooks/use-toast';
+import { toGLRow, type GLRow } from '@/components/accounting/accounting-utils';
 
+type Result = { success: boolean; error?: string };
+
+/** Chart of accounts for the General Ledger page. */
 export const useGLAccounts = () => {
-  const { user } = useAuth();
-  const { hasPermission, isAdmin } = useDirectPermissions();
-  
-  const [glAccounts, setGlAccounts] = useState<GLAccount[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isCreating, setIsCreating] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const { user, isAuthenticated, hasPermission, isAdmin } = useAuth();
+  const canView = isAdmin || hasPermission('view_gl_accounts');
 
-  // Use a ref to prevent infinite loops
-  const hasFetchedRef = useRef(false);
-  const fetchInProgressRef = useRef(false);
+  const query = useGLAccountsQuery({ enabled: isAuthenticated && canView });
+  const glAccounts = useMemo(() => (query.data ?? []).map(toGLRow), [query.data]);
 
-  const fetchGlAccounts = useCallback(async () => {
-    // Prevent duplicate concurrent fetches
-    if (fetchInProgressRef.current) return;
-    
-    fetchInProgressRef.current = true;
-    setIsLoading(true);
-    setError(null);
-    
+  const create = useCreateGLAccount();
+  const update = useUpdateGLAccount();
+  const toggle = useToggleGLAccountStatus();
+  const remove = useDeleteGLAccount();
+
+  /** Runs a mutation and reports the outcome as a toast. */
+  const run = async (fn: () => Promise<unknown>, success: string, failure: string): Promise<Result> => {
     try {
-      const accounts = await glAccountService.getAll();
-      setGlAccounts(accounts);
-    } catch (err) {
-      console.error('Failed to fetch GL accounts:', err);
-      setError('Failed to load GL accounts. Please try again.');
-    } finally {
-      setIsLoading(false);
-      fetchInProgressRef.current = false;
-    }
-  }, []);
-
-  useEffect(() => {
-    // Only fetch once on mount, never again
-    if (hasFetchedRef.current) return;
-    
-    const canView = hasPermission('view_gl_accounts') || isAdmin;
-    
-    if (canView) {
-      hasFetchedRef.current = true;
-      fetchGlAccounts();
-    } else {
-      setIsLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array - run only once on mount
-
-  const createAccount = async (data: CreateGLAccountData & { createdBy?: string }): Promise<{ success: boolean; error?: string; data?: GLAccount }> => {
-    if (!hasPermission('create_gl_accounts') && !isAdmin) {
-      return { success: false, error: 'You do not have permission to create GL accounts' };
-    }
-
-    setIsCreating(true);
-    setError(null);
-    try {
-      const newAccount = await glAccountService.create(data);
-      setGlAccounts(prev => [...prev, newAccount]);
-      setSuccessMessage('GL Account created successfully!');
-      setTimeout(() => setSuccessMessage(null), 3000);
-      return { success: true, data: newAccount };
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create GL account';
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const updateAccount = async (accountId: string, data: UpdateGLAccountData & { updatedBy?: string }): Promise<{ success: boolean; error?: string; data?: GLAccount }> => {
-    if (!hasPermission('update_gl_accounts') && !isAdmin) {
-      return { success: false, error: 'You do not have permission to update GL accounts' };
-    }
-
-    setIsUpdating(true);
-    setError(null);
-    try {
-      const updatedAccount = await glAccountService.update(accountId, data);
-      setGlAccounts(prev => prev.map(acc => acc._id === accountId ? updatedAccount : acc));
-      setSuccessMessage('GL Account updated successfully!');
-      setTimeout(() => setSuccessMessage(null), 3000);
-      return { success: true, data: updatedAccount };
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to update GL account';
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const deleteAccount = async (accountId: string): Promise<{ success: boolean; error?: string }> => {
-    if (!hasPermission('delete_gl_accounts') && !isAdmin) {
-      return { success: false, error: 'You do not have permission to delete GL accounts' };
-    }
-
-    setIsDeleting(true);
-    setError(null);
-    try {
-      await glAccountService.delete(accountId);
-      setGlAccounts(prev => prev.filter(acc => acc._id !== accountId));
-      setSuccessMessage('GL Account deleted successfully!');
-      setTimeout(() => setSuccessMessage(null), 3000);
+      await fn();
+      toast({ title: success });
       return { success: true };
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to delete GL account';
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
-    } finally {
-      setIsDeleting(false);
+      const error = getErrorMessage(err, failure);
+      toast({ title: failure, description: error, variant: 'destructive' });
+      return { success: false, error };
     }
   };
 
-  const toggleAccountStatus = async (accountId: string, currentStatus: boolean): Promise<{ success: boolean; error?: string }> => {
-    if (!hasPermission('update_gl_accounts') && !isAdmin) {
-      return { success: false, error: 'You do not have permission to update GL accounts' };
-    }
+  /** glCode and accountNumber are generated by the API. */
+  const createAccount = (data: CreateGLAccountRequest) =>
+    run(() => create.mutateAsync(data), 'GL account created', 'Failed to create GL account');
 
-    try {
-      await glAccountService.toggleStatus(accountId, currentStatus);
-      setGlAccounts(prev => prev.map(acc => {
-        if (acc._id === accountId) {
-          return { ...acc, isActive: !acc.isActive, status: acc.isActive ? 'inactive' : 'active' };
-        }
-        return acc;
-      }));
-      setSuccessMessage(`GL Account ${currentStatus ? 'deactivated' : 'activated'} successfully!`);
-      setTimeout(() => setSuccessMessage(null), 3000);
-      return { success: true };
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to update account status';
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
-    }
-  };
+  const updateAccount = (id: string, data: UpdateGLAccountRequest) =>
+    run(() => update.mutateAsync({ id, data }), 'GL account updated', 'Failed to update GL account');
 
-  const searchAccounts = (accounts: GLAccount[], searchTerm: string) => {
-    if (!searchTerm) return accounts;
-    return accounts.filter(account =>
-      account.glName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      account.glCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      account.accountNumber.includes(searchTerm) ||
-      (account.description && account.description.toLowerCase().includes(searchTerm.toLowerCase()))
+  const toggleAccountStatus = (id: string, currentlyActive: boolean) =>
+    run(
+      () => toggle.mutateAsync(id),
+      `GL account ${currentlyActive ? 'deactivated' : 'activated'}`,
+      'Failed to update account status',
+    );
+
+  const deleteAccount = (id: string) =>
+    run(() => remove.mutateAsync(id), 'GL account deleted', 'Failed to delete GL account');
+
+  const searchAccounts = (accounts: GLRow[], searchTerm: string) => {
+    const search = searchTerm.toLowerCase();
+    if (!search) return accounts;
+    return accounts.filter((a) =>
+      [a.glName, a.glCode, a.accountNumber, a.description, a.level2Category, a.level3Category].some((v) =>
+        v?.toLowerCase().includes(search),
+      ),
     );
   };
 
   const getSummaryStats = () => ({
     total: glAccounts.length,
-    active: glAccounts.filter(acc => acc.isActive).length,
-    openPermissions: glAccounts.filter(acc => acc.transactionPermission === 'open').length,
-    closedPermissions: glAccounts.filter(acc => acc.transactionPermission === 'closed').length,
+    active: glAccounts.filter((a) => a.isActive).length,
+    inactive: glAccounts.filter((a) => !a.isActive).length,
+    categories: new Set(glAccounts.map((a) => a.level1Category)).size,
   });
 
   return {
@@ -166,15 +80,13 @@ export const useGLAccounts = () => {
     hasPermission,
     isAdmin,
     glAccounts,
-    isLoading,
-    isCreating,
-    isUpdating,
-    isDeleting,
-    error,
-    setError,
-    successMessage,
-    setSuccessMessage,
-    fetchGlAccounts,
+    isLoading: query.isLoading,
+    isCreating: create.isPending,
+    isUpdating: update.isPending,
+    isDeleting: remove.isPending,
+    isToggling: toggle.isPending,
+    error: query.error ? getErrorMessage(query.error, 'Failed to load GL accounts. Please try again.') : null,
+    fetchGlAccounts: () => query.refetch(),
     createAccount,
     updateAccount,
     deleteAccount,

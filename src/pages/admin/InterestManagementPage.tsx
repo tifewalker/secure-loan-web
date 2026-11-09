@@ -17,7 +17,10 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useInterestManagement } from '@/hooks/useInterestManagement';
-import type { Interest, CreateInterestData, UpdateInterestData } from '../../types';
+import type { CreateInterestRequest, InterestCalculationPeriod, UpdateInterestRequest } from '@/api';
+import type { InterestRow } from '@/components/accounting/accounting-utils';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { toast } from '@/hooks/use-toast';
 
 const InterestManagementPage = () => {
   const {
@@ -29,8 +32,9 @@ const InterestManagementPage = () => {
     loading,
     glAccountsLoading,
     error,
-    setError,
     fetchInterests,
+    isSaving,
+    isDeleting,
     canAccessInterestManagement,
     canCreateInterest,
     canEditInterest,
@@ -50,9 +54,10 @@ const InterestManagementPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [selectedInterest, setSelectedInterest] = useState<Interest | null>(null);
+  const [selectedInterest, setSelectedInterest] = useState<InterestRow | null>(null);
+  const [interestToDelete, setInterestToDelete] = useState<InterestRow | null>(null);
 
-  const [newInterest, setNewInterest] = useState<CreateInterestData>({
+  const [newInterest, setNewInterest] = useState<CreateInterestRequest>({
     name: '',
     rate: 0,
     rateType: 'flat',
@@ -60,7 +65,7 @@ const InterestManagementPage = () => {
     glInterestIncome: ''
   });
 
-  const [editInterest, setEditInterest] = useState<UpdateInterestData>({
+  const [editInterest, setEditInterest] = useState<UpdateInterestRequest>({
     name: '',
     rate: 0,
     rateType: 'flat',
@@ -69,7 +74,7 @@ const InterestManagementPage = () => {
   });
 
   const showToast = (title: string, description: string, variant: 'default' | 'destructive' = 'default') => {
-    alert(`${variant === 'destructive' ? '❌' : '✅'} ${title}\n${description}`);
+    toast({ title, description, variant });
   };
 
   if (!authInitialized || authLoading) {
@@ -112,7 +117,7 @@ const InterestManagementPage = () => {
           <p className="mb-1 text-sm font-medium text-destructive">Error</p>
           <p className="mb-4 text-sm text-muted-foreground">{error}</p>
           <div className="flex justify-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => { setError(null); fetchInterests(); }}>
+            <Button variant="outline" size="sm" onClick={() => fetchInterests()}>
               Retry
             </Button>
           </div>
@@ -160,7 +165,7 @@ const InterestManagementPage = () => {
     const action = currentStatus ? 'deactivate' : 'activate';
     if (!window.confirm(`Are you sure you want to ${action} this interest rate?`)) return;
 
-    const result = await toggleInterestStatus(interestId, currentStatus);
+    const result = await toggleInterestStatus(interestId);
     if (result.success) {
       showToast("Success", `Interest rate ${action}d successfully`);
     } else {
@@ -168,18 +173,18 @@ const InterestManagementPage = () => {
     }
   };
 
-  const handleDeleteInterest = async (interestId: string, interestName: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${interestName}"? This action cannot be undone.`)) return;
-
-    const result = await deleteInterest(interestId);
+  const handleDeleteInterest = async () => {
+    if (!interestToDelete) return;
+    const result = await deleteInterest(interestToDelete._id);
     if (result.success) {
+      setInterestToDelete(null);
       showToast("Success", "Interest rate deleted successfully");
     } else {
       showToast("Error", result.error || "Failed to delete interest rate", "destructive");
     }
   };
 
-  const openEditDialog = (interest: Interest) => {
+  const openEditDialog = (interest: InterestRow) => {
     setSelectedInterest(interest);
     setEditInterest({
       name: interest.name,
@@ -361,7 +366,7 @@ const InterestManagementPage = () => {
                             <>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
-                                onClick={() => handleDeleteInterest(interest._id, interest.name)}
+                                onClick={() => setInterestToDelete(interest)}
                                 className="text-destructive focus:text-destructive"
                               >
                                 <Trash2 className="mr-2 size-4" />
@@ -421,7 +426,7 @@ const InterestManagementPage = () => {
             </div>
             <div>
               <Label htmlFor="calculationPeriod">Calculation Period *</Label>
-              <Select value={newInterest.calculationPeriod} onValueChange={(value: 'weekly' | 'monthly' | 'daily' | 'yearly') => setNewInterest({...newInterest, calculationPeriod: value})}>
+              <Select value={newInterest.calculationPeriod} onValueChange={(value: InterestCalculationPeriod) => setNewInterest({...newInterest, calculationPeriod: value})}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select calculation period" />
                 </SelectTrigger>
@@ -429,7 +434,7 @@ const InterestManagementPage = () => {
                   <SelectItem value="daily">Daily</SelectItem>
                   <SelectItem value="weekly">Weekly</SelectItem>
                   <SelectItem value="monthly">Monthly</SelectItem>
-                  <SelectItem value="yearly">Yearly</SelectItem>
+                  <SelectItem value="annually">Annually</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -441,7 +446,7 @@ const InterestManagementPage = () => {
                 </SelectTrigger>
                 <SelectContent>
                   {activeGLAccounts.map((account) => (
-                    <SelectItem key={account._id} value={account.glCode}>
+                    <SelectItem key={account._id} value={account._id}>
                       {account.glName} ({account.glCode})
                     </SelectItem>
                   ))}
@@ -455,8 +460,8 @@ const InterestManagementPage = () => {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleCreateInterest} disabled={!newInterest.name.trim() || newInterest.rate <= 0 || !newInterest.glInterestIncome.trim()}>
-                Create Interest Rate
+              <Button onClick={handleCreateInterest} disabled={!newInterest.name.trim() || newInterest.rate <= 0 || !newInterest.glInterestIncome || isSaving}>
+                {isSaving ? 'Creating...' : 'Create Interest Rate'}
               </Button>
             </DialogFooter>
           </div>
@@ -504,7 +509,7 @@ const InterestManagementPage = () => {
               </div>
               <div>
                 <Label htmlFor="editCalculationPeriod">Calculation Period *</Label>
-                <Select value={editInterest.calculationPeriod || 'monthly'} onValueChange={(value: 'weekly' | 'monthly' | 'daily' | 'yearly') => setEditInterest({...editInterest, calculationPeriod: value})}>
+                <Select value={editInterest.calculationPeriod || 'monthly'} onValueChange={(value: InterestCalculationPeriod) => setEditInterest({...editInterest, calculationPeriod: value})}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select calculation period" />
                   </SelectTrigger>
@@ -512,7 +517,7 @@ const InterestManagementPage = () => {
                     <SelectItem value="daily">Daily</SelectItem>
                     <SelectItem value="weekly">Weekly</SelectItem>
                     <SelectItem value="monthly">Monthly</SelectItem>
-                    <SelectItem value="yearly">Yearly</SelectItem>
+                    <SelectItem value="annually">Annually</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -524,7 +529,7 @@ const InterestManagementPage = () => {
                   </SelectTrigger>
                   <SelectContent>
                     {activeGLAccounts.map((account) => (
-                      <SelectItem key={account._id} value={account.glCode}>
+                      <SelectItem key={account._id} value={account._id}>
                         {account.glName} ({account.glCode})
                       </SelectItem>
                     ))}
@@ -533,12 +538,27 @@ const InterestManagementPage = () => {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancel</Button>
-                <Button onClick={handleEditInterest}>Update Interest Rate</Button>
+                <Button onClick={handleEditInterest} disabled={isSaving}>{isSaving ? 'Updating...' : 'Update Interest Rate'}</Button>
               </DialogFooter>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!interestToDelete}
+        onOpenChange={(open) => !open && setInterestToDelete(null)}
+        title="Delete interest rate?"
+        description={
+          interestToDelete && (
+            <>"{interestToDelete.name}" will be permanently deleted. Loans already booked keep the rate they were booked with.</>
+          )
+        }
+        confirmLabel="Delete interest rate"
+        destructive
+        isPending={isDeleting}
+        onConfirm={handleDeleteInterest}
+      />
     </div>
   );
 };

@@ -1,167 +1,95 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useMemo } from 'react';
+import {
+  getErrorMessage,
+  useCreateInterest,
+  useDeleteInterest,
+  useGLAccounts,
+  useInterests,
+  useToggleInterestActivation,
+  useUpdateInterest,
+  type CreateInterestRequest,
+  type UpdateInterestRequest,
+} from '@/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { useUserPermissions } from '@/hooks/useUserPermissions';
-import { interestService } from '@/services/interest.service';
-import { glAccountService } from '@/services/gl-account.service';
-import type { Interest, CreateInterestData, UpdateInterestData, GLAccount } from '../types';
+import { makeGLLookup, toGLRow, toInterestRow } from '@/components/accounting/accounting-utils';
+
+type Result = { success: boolean; error?: string };
 
 export const useInterestManagement = () => {
-  const { user, isAuthenticated, authInitialized, isLoading: authLoading } = useAuth();
-  const { hasPermission, isAdmin } = useUserPermissions();
-  
-  const [interests, setInterests] = useState<Interest[]>([]);
-  const [glAccounts, setGlAccounts] = useState<GLAccount[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [glAccountsLoading, setGlAccountsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { user, isAuthenticated, authInitialized, isLoading: authLoading, hasPermission, isAdmin } = useAuth();
 
-  const canAccessInterestManagement = useCallback(() => {
-    return isAdmin || hasPermission('view_interests');
-  }, [isAdmin, hasPermission]);
+  const canAccessInterestManagement = () => isAdmin || hasPermission('view_interests');
+  const canCreateInterest = () => isAdmin || hasPermission('create_interests');
+  const canEditInterest = () => isAdmin || hasPermission('update_interests');
+  const canDeleteInterest = () => isAdmin || hasPermission('delete_interests');
+  const canToggleInterest = () => isAdmin || hasPermission('update_interests');
 
-  const canCreateInterest = useCallback(() => isAdmin || hasPermission('create_interests'), [isAdmin, hasPermission]);
-  const canEditInterest = useCallback(() => isAdmin || hasPermission('update_interests'), [isAdmin, hasPermission]);
-  const canDeleteInterest = useCallback(() => isAdmin || hasPermission('delete_interests'), [isAdmin, hasPermission]);
-  const canToggleInterest = useCallback(() => isAdmin || hasPermission('update_interests'), [isAdmin, hasPermission]);
+  const enabled = isAuthenticated && canAccessInterestManagement();
+  const interestsQuery = useInterests({ enabled });
+  const glQuery = useGLAccounts({ enabled });
 
-  const fetchInterests = useCallback(async () => {
-    if (!isAuthenticated) {
-      setLoading(false);
-      return;
-    }
+  const interests = useMemo(() => (interestsQuery.data ?? []).map(toInterestRow), [interestsQuery.data]);
+  const glAccounts = useMemo(() => (glQuery.data ?? []).map(toGLRow), [glQuery.data]);
+  const gl = useMemo(() => makeGLLookup(glAccounts), [glAccounts]);
 
-    setLoading(true);
-    setError(null);
+  const create = useCreateInterest();
+  const update = useUpdateInterest();
+  const toggle = useToggleInterestActivation();
+  const remove = useDeleteInterest();
+
+  const run = async (fn: () => Promise<unknown>, failure: string): Promise<Result> => {
     try {
-      const interestsData = await interestService.getAll();
-      setInterests(interestsData);
-    } catch (error) {
-      console.error('Error fetching interest rates:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to fetch interest rates';
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  }, [isAuthenticated]);
-
-  const fetchGLAccounts = useCallback(async () => {
-    if (!isAuthenticated) return;
-    
-    setGlAccountsLoading(true);
-    try {
-      const accounts = await glAccountService.getAll();
-      setGlAccounts(accounts);
-    } catch (error) {
-      console.error('Error fetching GL accounts:', error);
-    } finally {
-      setGlAccountsLoading(false);
-    }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    fetchInterests();
-    fetchGLAccounts();
-  }, [fetchInterests, fetchGLAccounts]);
-
-  const getGLAccountByCode = (glCode: string): GLAccount | undefined => {
-    return glAccounts.find(acc => acc.glCode === glCode);
-  };
-
-  const getGLAccountName = (glCode: string): string => {
-    if (!glCode) return 'Not set';
-    const account = getGLAccountByCode(glCode);
-    return account ? account.glName : `GL Code: ${glCode}`;
-  };
-
-  const getGLAccountDisplay = (glCode: string): { name: string; code: string; status: string; category: string } => {
-    const account = getGLAccountByCode(glCode);
-    if (!account) {
-      return { name: 'Account not found', code: glCode, status: 'unknown', category: '' };
-    }
-    return {
-      name: account.glName,
-      code: account.glCode,
-      status: account.status,
-      category: account.level1Category
-    };
-  };
-
-  const createInterest = async (data: CreateInterestData): Promise<{ success: boolean; error?: string; data?: Interest }> => {
-    try {
-      if (!data.name.trim()) return { success: false, error: "Interest rate name is required" };
-      if (data.rate <= 0) return { success: false, error: "Interest rate must be greater than 0" };
-      if (!data.glInterestIncome.trim()) return { success: false, error: "GL Interest Income account is required" };
-
-      const createdInterest = await interestService.create(data);
-      setInterests(prev => [...prev, createdInterest]);
-      return { success: true, data: createdInterest };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to create interest rate';
-      return { success: false, error: errorMessage };
-    }
-  };
-
-  const updateInterest = async (interestId: string, data: UpdateInterestData): Promise<{ success: boolean; error?: string; data?: Interest }> => {
-    try {
-      if (!data.name?.trim()) return { success: false, error: "Interest rate name is required" };
-      if (data.rate !== undefined && data.rate <= 0) return { success: false, error: "Interest rate must be greater than 0" };
-      if (!data.glInterestIncome?.trim()) return { success: false, error: "GL Interest Income account is required" };
-
-      const updatedInterest = await interestService.update(interestId, data);
-      setInterests(prev => prev.map(interest => interest._id === interestId ? updatedInterest : interest));
-      return { success: true, data: updatedInterest };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update interest rate';
-      return { success: false, error: errorMessage };
-    }
-  };
-
-  const toggleInterestStatus = async (interestId: string, currentStatus: boolean): Promise<{ success: boolean; error?: string }> => {
-    try {
-      await interestService.toggleStatus(interestId, currentStatus);
-      setInterests(prev => prev.map(interest => interest._id === interestId ? { ...interest, isActive: !currentStatus } : interest));
+      await fn();
       return { success: true };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update interest rate status';
-      return { success: false, error: errorMessage };
+    } catch (err) {
+      return { success: false, error: getErrorMessage(err, failure) };
     }
   };
 
-  const deleteInterest = async (interestId: string): Promise<{ success: boolean; error?: string }> => {
-    try {
-      await interestService.delete(interestId);
-      setInterests(prev => prev.filter(interest => interest._id !== interestId));
-      return { success: true };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to delete interest rate';
-      return { success: false, error: errorMessage };
-    }
+  const validate = (data: Partial<CreateInterestRequest>) => {
+    if (!data.name?.trim()) return 'Interest rate name is required';
+    if (!data.rate || data.rate <= 0) return 'Interest rate must be greater than 0';
+    if (!data.glInterestIncome) return 'GL Interest Income account is required';
+    return null;
+  };
+
+  const createInterest = async (data: CreateInterestRequest): Promise<Result> => {
+    const error = validate(data);
+    return error ? { success: false, error } : run(() => create.mutateAsync(data), 'Failed to create interest rate');
+  };
+
+  /** Affects new bookings only; booked loans keep their rate. */
+  const updateInterest = async (id: string, data: UpdateInterestRequest): Promise<Result> => {
+    const error = validate(data);
+    return error ? { success: false, error } : run(() => update.mutateAsync({ id, data }), 'Failed to update interest rate');
+  };
+
+  const toggleInterestStatus = (id: string) => run(() => toggle.mutateAsync(id), 'Failed to update interest rate status');
+  const deleteInterest = (id: string) => run(() => remove.mutateAsync(id), 'Failed to delete interest rate');
+
+  /** Display info for a GL account id. */
+  const getGLAccountDisplay = (id: string) => {
+    const account = gl.get(id);
+    return account
+      ? { name: account.glName, code: account.glCode, status: account.isActive ? 'active' : 'inactive', category: account.level1Category }
+      : { name: id ? 'Account not found' : 'Not set', code: '—', status: 'unknown', category: '' };
   };
 
   const searchInterests = (searchTerm: string) => {
-    if (!searchTerm) return interests;
-    
-    return interests.filter(interest =>
-      interest.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      interest.glInterestIncome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      interest.rateType.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      interest.calculationPeriod.toLowerCase().includes(searchTerm.toLowerCase())
+    const search = searchTerm.toLowerCase();
+    if (!search) return interests;
+    return interests.filter((i) =>
+      [i.name, i.rateType, i.calculationPeriod, gl.name(i.glInterestIncome)].some((v) => v.toLowerCase().includes(search)),
     );
   };
 
   const getSummaryStats = () => ({
     totalInterests: interests.length,
-    activeInterests: interests.filter(i => i.isActive).length,
-    flatRates: interests.filter(i => i.rateType === 'flat').length,
-    reducingRates: interests.filter(i => i.rateType === 'reducing_balance').length,
-    averageRate: interests.length > 0 
-      ? (interests.reduce((sum, i) => sum + i.rate, 0) / interests.length).toFixed(2)
-      : '0.00'
+    activeInterests: interests.filter((i) => i.isActive).length,
+    flatRates: interests.filter((i) => i.rateType === 'flat').length,
+    reducingRates: interests.filter((i) => i.rateType === 'reducing_balance').length,
+    averageRate: interests.length > 0 ? (interests.reduce((sum, i) => sum + i.rate, 0) / interests.length).toFixed(2) : '0.00',
   });
-
-  const getActiveGLAccounts = () => {
-    return glAccounts.filter(account => account.status === 'active' && account.isActive);
-  };
 
   return {
     user,
@@ -172,11 +100,12 @@ export const useInterestManagement = () => {
     isAdmin,
     interests,
     glAccounts,
-    loading,
-    glAccountsLoading,
-    error,
-    setError,
-    fetchInterests,
+    loading: interestsQuery.isLoading,
+    glAccountsLoading: glQuery.isLoading,
+    error: interestsQuery.error ? getErrorMessage(interestsQuery.error, 'Failed to fetch interest rates') : null,
+    fetchInterests: () => interestsQuery.refetch(),
+    isSaving: create.isPending || update.isPending,
+    isDeleting: remove.isPending,
     canAccessInterestManagement,
     canCreateInterest,
     canEditInterest,
@@ -188,8 +117,9 @@ export const useInterestManagement = () => {
     deleteInterest,
     searchInterests,
     getSummaryStats,
-    getGLAccountName,
+    getGLAccountName: gl.name,
     getGLAccountDisplay,
-    getActiveGLAccounts,
+    /** Interest income is posted to Income accounts. */
+    getActiveGLAccounts: () => glAccounts.filter((a) => a.isActive && a.level1Category === 'Income'),
   };
 };

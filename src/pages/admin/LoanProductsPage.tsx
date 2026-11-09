@@ -3,13 +3,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription 
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import { 
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle 
-} from '@/components/ui/alert-dialog';
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
 } from '@/components/ui/table';
@@ -25,8 +21,10 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { useLoanProducts } from '@/hooks/useLoanProducts';
-import type { CreateLoanProductData, LoanProduct } from '../../types';
+import { useLoanProducts, type LoanProductRow } from '@/hooks/useLoanProducts';
+import type { CreateLoanProductRequest } from '@/api';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { LoanProductFormDialog } from '@/components/loan-products/LoanProductFormDialog';
 
 const LoanProductsPage = () => {
   const {
@@ -35,25 +33,31 @@ const LoanProductsPage = () => {
     authInitialized,
     authLoading,
     loanProducts,
+    interests,
+    fees,
+    glAccounts,
     loading,
     error,
     isCreating,
     isUpdating,
     isDeleting,
+    isToggling,
+    canDelete,
     fetchData,
     createProduct,
     updateProduct,
     deleteProduct,
     toggleProductStatus,
     getInterestName,
+    getFeeName,
+    getAccountName,
     formatAmount,
     getSummaryStats,
   } = useLoanProducts();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [selectedProduct, setSelectedProduct] = useState<LoanProduct | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<LoanProductRow | null>(null);
   
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -80,7 +84,8 @@ const LoanProductsPage = () => {
   const filteredProducts = loanProducts.filter(product => {
     const matchesSearch = 
       product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.description.toLowerCase().includes(searchTerm.toLowerCase());
+      product.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      getInterestName(product.interestId).toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = statusFilter === 'all' || 
       (statusFilter === 'active' && product.isActive) ||
@@ -91,45 +96,28 @@ const LoanProductsPage = () => {
 
   const summaryStats = getSummaryStats();
 
-  const handleCreate = async (data: CreateLoanProductData) => {
-    const result = await createProduct(data);
-    if (result.success) {
-      setSuccessMessage('Loan product created successfully!');
-      setCreateDialogOpen(false);
-      setTimeout(() => setSuccessMessage(null), 3000);
-    }
-  };
+  const handleCreate = (data: CreateLoanProductRequest) => createProduct(data);
 
-  const handleUpdate = async (data: CreateLoanProductData) => {
-    if (!selectedProduct) return;
-    const result = await updateProduct(selectedProduct._id, data);
-    if (result.success) {
-      setSuccessMessage('Loan product updated successfully!');
-      setEditDialogOpen(false);
-      setSelectedProduct(null);
-      setTimeout(() => setSuccessMessage(null), 3000);
-    }
+  const handleUpdate = async (data: CreateLoanProductRequest) => {
+    if (!selectedProduct) return { success: false };
+    return updateProduct(selectedProduct._id, data);
   };
 
   const handleDelete = async () => {
     if (!selectedProduct) return;
     const result = await deleteProduct(selectedProduct._id);
     if (result.success) {
-      setSuccessMessage('Loan product deleted successfully!');
       setDeleteDialogOpen(false);
       setSelectedProduct(null);
-      setTimeout(() => setSuccessMessage(null), 3000);
     }
   };
 
   const handleToggleStatus = async () => {
     if (!selectedProduct) return;
     const result = await toggleProductStatus(selectedProduct._id, selectedProduct.isActive);
-    if (result.success && result.data) {
-      setSuccessMessage(`Loan product ${result.data.isActive ? 'activated' : 'deactivated'} successfully!`);
+    if (result.success) {
       setStatusDialogOpen(false);
       setSelectedProduct(null);
-      setTimeout(() => setSuccessMessage(null), 3000);
     }
   };
 
@@ -141,13 +129,13 @@ const LoanProductsPage = () => {
 
   return (
     <div className="space-y-6">
-      {/* Success Message */}
-      {successMessage && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          <div className="flex items-center">
-            <Check className="mr-2 size-4" />
-            <span>{successMessage}</span>
-          </div>
+      {/* Load error */}
+      {error && (
+        <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{error}</span>
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => fetchData()}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -157,15 +145,15 @@ const LoanProductsPage = () => {
           <h1 className="text-2xl font-semibold tracking-tight">Loan Products</h1>
           <p className="mt-1 text-sm text-muted-foreground">Create and manage loan products</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Logged in as: {user?.fullName} ({user?.role})
+            Logged in as: {user?.fullName} ({user?.roleName || user?.role})
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={fetchData}>
+          <Button variant="outline" size="sm" onClick={() => fetchData()}>
             <RefreshCw className="mr-2 size-4" />
             Refresh
           </Button>
-          <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+          <Button size="sm" onClick={() => { setSelectedProduct(null); setCreateDialogOpen(true); }}>
             <Plus className="mr-2 size-4" />
             Create Product
           </Button>
@@ -312,14 +300,18 @@ const LoanProductsPage = () => {
                           )}
                           {product.isActive ? 'Deactivate' : 'Activate'}
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => { setSelectedProduct(product); setDeleteDialogOpen(true); }}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="mr-2 size-4" />
-                          Delete
-                        </DropdownMenuItem>
+                        {canDelete && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => { setSelectedProduct(product); setDeleteDialogOpen(true); }}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="mr-2 size-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -330,8 +322,121 @@ const LoanProductsPage = () => {
         )}
       </div>
 
-      {/* Create/Edit/View/Delete/Status dialogs remain the same but use the hook methods */}
-      {/* They can be further extracted to components as needed */}
+      {/* Create / Edit */}
+      <LoanProductFormDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        interests={interests}
+        fees={fees}
+        glAccounts={glAccounts}
+        isSubmitting={isCreating}
+        onSubmit={handleCreate}
+      />
+      <LoanProductFormDialog
+        open={editDialogOpen}
+        onOpenChange={(open) => { setEditDialogOpen(open); if (!open) setSelectedProduct(null); }}
+        product={selectedProduct}
+        interests={interests}
+        fees={fees}
+        glAccounts={glAccounts}
+        isSubmitting={isUpdating}
+        onSubmit={handleUpdate}
+      />
+
+      {/* View */}
+      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>{selectedProduct?.name}</DialogTitle>
+          </DialogHeader>
+          {selectedProduct && (
+            <div className="space-y-4 text-sm">
+              {selectedProduct.description && <p className="text-muted-foreground">{selectedProduct.description}</p>}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-muted-foreground">Loan Range</p>
+                  <p className="font-medium">{formatAmount(selectedProduct.minAmount)} – {formatAmount(selectedProduct.maxAmount)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Tenure</p>
+                  <p className="font-medium">{selectedProduct.tenure} {selectedProduct.tenureUnit}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Repayment</p>
+                  <p className="font-medium">
+                    Every {selectedProduct.repaymentPattern?.frequencyValue ?? 1} {selectedProduct.repaymentPattern?.frequencyUnit ?? 'months'}
+                  </p>
+                  {selectedProduct.repaymentPattern?.description && (
+                    <p className="text-xs text-muted-foreground">{selectedProduct.repaymentPattern.description}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Auto-default</p>
+                  <p className="font-medium">
+                    {selectedProduct.defaultAfterDays ? `After ${selectedProduct.defaultAfterDays} days overdue` : 'Never'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Interest</p>
+                  <p className="font-medium">{getInterestName(selectedProduct.interestId)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Fee</p>
+                  <p className="font-medium">{getFeeName(selectedProduct.feeId)}</p>
+                </div>
+              </div>
+              <div>
+                <p className="mb-2 font-semibold">GL Mapping</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {([
+                    ['Principal Receivable', 'principalReceivable'],
+                    ['Interest Receivable', 'interestReceivable'],
+                    ['Interest Income', 'interestIncome'],
+                    ['Fee Income', 'feeIncome'],
+                    ['Disbursement', 'disbursementAccount'],
+                    ['Cash / Collection', 'cashAccount'],
+                    ['Penalty Income', 'penaltyIncome'],
+                    ['Wallet Liability', 'walletLiability'],
+                  ] as const).map(([label, key]) => (
+                    <div key={key}>
+                      <p className="text-xs text-muted-foreground">{label}</p>
+                      <p className="font-medium">{getAccountName(selectedProduct.glMapping?.[key])}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewDialogOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete loan product?"
+        description={selectedProduct && <>"{selectedProduct.name}" will be permanently deleted. This cannot be undone.</>}
+        confirmLabel="Delete product"
+        destructive
+        isPending={isDeleting}
+        onConfirm={handleDelete}
+      />
+
+      <ConfirmDialog
+        open={statusDialogOpen}
+        onOpenChange={setStatusDialogOpen}
+        title={selectedProduct?.isActive ? 'Deactivate loan product?' : 'Activate loan product?'}
+        description={
+          selectedProduct?.isActive
+            ? 'Inactive products cannot be used for new bookings. Existing loans are not affected.'
+            : 'The product will be available for new bookings.'
+        }
+        confirmLabel={selectedProduct?.isActive ? 'Deactivate' : 'Activate'}
+        isPending={isToggling}
+        onConfirm={handleToggleStatus}
+      />
     </div>
   );
 };

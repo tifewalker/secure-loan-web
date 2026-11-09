@@ -20,7 +20,7 @@ import {
 import { useAdminDashboard } from '@/hooks/useAdminDashboard';
 import { useNavigate } from 'react-router-dom';
 import { format, formatDistanceToNow } from 'date-fns';
-import type { LoanApplication } from '../../types';
+import type { LoanRow } from '@/components/loans/loan-utils';
 
 const AdminDashboardPage = () => {
   const navigate = useNavigate();
@@ -157,6 +157,7 @@ const AdminDashboardPage = () => {
         return 'border-green-200 bg-green-50 text-green-700';
       case 'rejected':
         return 'border-red-200 bg-red-50 text-red-700';
+      case 'active':
       case 'disbursed':
         return 'border-purple-200 bg-purple-50 text-purple-700';
       case 'closed':
@@ -442,7 +443,7 @@ const AdminDashboardPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {recentApplications.map((app: LoanApplication) => (
+                {recentApplications.map((app: LoanRow) => (
                   <tr
                     key={app._id}
                     className="group border-b transition-colors last:border-b-0 hover:bg-accent/30"

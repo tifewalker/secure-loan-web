@@ -14,3 +14,4 @@ export { default as SettingsPage } from './SettingsPage';
 export { default as StaffPage } from './StaffPage';
 export { default as TransactionsPage } from './TransactionsPage';
 export { default as ReportsPage } from './ReportsPage';
+export { default as HolidaysPage } from './HolidaysPage';

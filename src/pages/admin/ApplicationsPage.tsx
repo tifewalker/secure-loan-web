@@ -23,7 +23,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { format, formatDistanceToNow } from 'date-fns';
 import { useLoanApplications } from '@/hooks/useLoanApplications';
-import type { LoanApplication } from '../../types';
+import { toast } from '@/hooks/use-toast';
+import { isDisbursed, type LoanRow } from '@/components/loans/loan-utils';
+import { LoanServicingPanel } from '@/components/loans/LoanServicingPanel';
+import { EditLoanTermsDialog } from '@/components/loans/EditLoanTermsDialog';
+import { Pencil, PlayCircle } from 'lucide-react';
+import { getErrorMessage, useRunLoanServicing } from '@/api';
+import type { FeeTreatment, LoanProduct } from '@/api';
 
 const ApplicationsPage = () => {
   const {
@@ -41,15 +47,14 @@ const ApplicationsPage = () => {
     customersError,
     loanProductsError,
     isCreating,
-    isDeleting,
     canCreateApplications,
     canViewApplications,
     canUpdateApplications,
-    canDeleteApplications,
+    canDefaultLoans,
+    isAdmin,
     fetchApplications,
     fetchDropdownData,
     createApplication,
-    deleteApplication,
     getStatusDisplay,
     getStatusColor,
     formatCurrency,
@@ -62,22 +67,40 @@ const ApplicationsPage = () => {
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  const [selectedApplication, setSelectedApplication] = useState<LoanApplication | null>(null);
+  const [selectedApplication, setSelectedApplication] = useState<LoanRow | null>(null);
+  const [loanToEdit, setLoanToEdit] = useState<LoanRow | null>(null);
+  const runServicing = useRunLoanServicing();
 
-  const [newApplication, setNewApplication] = useState({
+  /** Admin only: overdue marking, penalties, wallet sweeps and auto-default, right now. */
+  const handleRunServicing = async () => {
+    try {
+      const { summary } = await runServicing.mutateAsync();
+      toast({
+        title: 'Loan servicing complete',
+        description: summary
+          ? `${summary.loansChecked ?? 0} loans checked, ${summary.walletSweeps ?? 0} wallet sweeps (${formatCurrency(summary.sweptAmount ?? 0)}), ${summary.defaulted ?? 0} defaulted${summary.errors ? `, ${summary.errors} errors` : ''}.`
+          : undefined,
+      });
+    } catch (err) {
+      toast({ title: 'Loan servicing failed', description: getErrorMessage(err), variant: 'destructive' });
+    }
+  };
+
+  const emptyApplication = {
     loanProductId: '',
     customerId: '',
     principalAmount: 0,
     tenure: 1,
     purpose: '',
-    notes: '',
-  });
+    feeTreatment: 'upfront' as FeeTreatment,
+    penaltyDailyRate: 0,
+    penaltyGracePeriodDays: 0,
+  };
+  const [newApplication, setNewApplication] = useState(emptyApplication);
 
   const showToast = (title: string, description: string, variant: 'default' | 'destructive' = 'default') => {
-    console.log(`${variant === 'destructive' ? '❌' : '✅'} ${title}: ${description}`);
-    alert(`${variant === 'destructive' ? '❌' : '✅'} ${title}\n${description}`);
+    toast({ title, description, variant });
   };
 
   const filteredApplications = searchApplications(searchTerm, statusFilter);
@@ -93,6 +116,7 @@ const ApplicationsPage = () => {
         return <CheckCircle className="size-3.5" />;
       case 'rejected':
         return <XCircle className="size-3.5" />;
+      case 'active':
       case 'disbursed':
         return <TrendingUp className="size-3.5" />;
       default:
@@ -116,11 +140,13 @@ const ApplicationsPage = () => {
     }
   };
 
-  const getCustomerDisplayName = (customer: { firstName: string; lastName: string }) =>
-    `${customer.firstName} ${customer.lastName}`;
+  const getCustomerDisplayName = (customer: { firstName?: string; lastName?: string; fullName?: string }) =>
+    customer.fullName || `${customer.firstName ?? ''} ${customer.lastName ?? ''}`.trim();
 
-  const getLoanProductDisplayName = (product: { name: string; minAmount: number; maxAmount: number }) =>
+  const getLoanProductDisplayName = (product: LoanProduct) =>
     `${product.name} - ${formatCurrency(product.minAmount)} to ${formatCurrency(product.maxAmount)}`;
+
+  const selectedProduct = loanProducts.find((p) => p._id === newApplication.loanProductId);
 
   const handleCreateApplication = async () => {
     if (!newApplication.customerId || !newApplication.loanProductId || newApplication.principalAmount <= 0) {
@@ -128,13 +154,12 @@ const ApplicationsPage = () => {
       return;
     }
 
-    const selectedProduct = loanProducts.find((p) => p._id === newApplication.loanProductId);
     if (selectedProduct) {
-      if (newApplication.principalAmount < selectedProduct.minAmount) {
+      if (selectedProduct.minAmount != null && newApplication.principalAmount < selectedProduct.minAmount) {
         showToast('Error', `Minimum amount is ${formatCurrency(selectedProduct.minAmount)}`, 'destructive');
         return;
       }
-      if (newApplication.principalAmount > selectedProduct.maxAmount) {
+      if (selectedProduct.maxAmount != null && newApplication.principalAmount > selectedProduct.maxAmount) {
         showToast('Error', `Maximum amount is ${formatCurrency(selectedProduct.maxAmount)}`, 'destructive');
         return;
       }
@@ -145,28 +170,18 @@ const ApplicationsPage = () => {
       customerId: newApplication.customerId,
       principalAmount: newApplication.principalAmount,
       tenure: newApplication.tenure,
+      feeTreatment: newApplication.feeTreatment,
+      penaltyDailyRate: newApplication.penaltyDailyRate,
+      penaltyGracePeriodDays: newApplication.penaltyGracePeriodDays,
       purpose: newApplication.purpose || undefined,
     });
 
     if (result.success) {
       setCreateDialogOpen(false);
-      setNewApplication({ loanProductId: '', customerId: '', principalAmount: 0, tenure: 1, purpose: '', notes: '' });
-      showToast('Success', 'Loan application created successfully');
+      setNewApplication(emptyApplication);
+      showToast('Success', 'Loan booked and sent for review');
     } else {
       showToast('Error', result.error || 'Failed to create application', 'destructive');
-    }
-  };
-
-  const handleDeleteApplication = async () => {
-    if (!selectedApplication) return;
-
-    const result = await deleteApplication(selectedApplication._id);
-    if (result.success) {
-      setDeleteDialogOpen(false);
-      setSelectedApplication(null);
-      showToast('Success', 'Application deleted successfully');
-    } else {
-      showToast('Error', result.error || 'Failed to delete application', 'destructive');
     }
   };
 
@@ -219,10 +234,16 @@ const ApplicationsPage = () => {
           <p className="mt-1 text-sm text-muted-foreground">Review and manage all loan applications</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={fetchApplications} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={() => fetchApplications()} disabled={loading}>
             <RefreshCw className="mr-2 size-4" />
             Refresh
           </Button>
+          {isAdmin && (
+            <Button variant="outline" size="sm" onClick={handleRunServicing} disabled={runServicing.isPending}>
+              <PlayCircle className="mr-2 size-4" />
+              {runServicing.isPending ? 'Running...' : 'Run Servicing'}
+            </Button>
+          )}
           {canCreateApplications() && (
             <Button
               size="sm"
@@ -273,10 +294,12 @@ const ApplicationsPage = () => {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All status</SelectItem>
-              <SelectItem value="under-review">Under Review</SelectItem>
+              <SelectItem value="pending">Under Review</SelectItem>
               <SelectItem value="approved">Approved</SelectItem>
               <SelectItem value="rejected">Rejected</SelectItem>
-              <SelectItem value="disbursed">Disbursed</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="defaulted">Defaulted</SelectItem>
+              <SelectItem value="closed">Closed</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -343,7 +366,7 @@ const ApplicationsPage = () => {
                   </TableCell>
                   <TableCell>
                     <span className="block max-w-[180px] truncate text-sm text-muted-foreground" title={app.purpose}>
-                      {app.purpose || 'General Loan'}
+                      {app.purpose || app.productName || 'General Loan'}
                     </span>
                   </TableCell>
                   <TableCell>
@@ -385,21 +408,8 @@ const ApplicationsPage = () => {
                           }}
                         >
                           <Eye className="mr-2 size-4" />
-                          View Details
+                          {isDisbursed(app.status) ? 'View & Service Loan' : 'View Details'}
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        {canDeleteApplications() && (
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setSelectedApplication(app);
-                              setDeleteDialogOpen(true);
-                            }}
-                            className="text-destructive focus:text-destructive"
-                          >
-                            <XCircle className="mr-2 size-4" />
-                            Delete Application
-                          </DropdownMenuItem>
-                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -449,7 +459,7 @@ const ApplicationsPage = () => {
                     <div className="p-2 text-sm text-muted-foreground">No active customers found.</div>
                   ) : (
                     customers.map((customer) => (
-                      <SelectItem key={customer._id} value={customer._id}>
+                      <SelectItem key={customer._id} value={customer._id ?? ''}>
                         {getCustomerDisplayName(customer)}
                       </SelectItem>
                     ))
@@ -494,8 +504,8 @@ const ApplicationsPage = () => {
                   ) : loanProducts.length === 0 ? (
                     <div className="p-2 text-sm text-muted-foreground">No active loan products found.</div>
                   ) : (
-                    loanProducts.map((product) => (
-                      <SelectItem key={product._id} value={product._id}>
+                    loanProducts.filter((product) => product._id).map((product) => (
+                      <SelectItem key={product._id} value={product._id!}>
                         {getLoanProductDisplayName(product)}
                       </SelectItem>
                     ))
@@ -520,7 +530,7 @@ const ApplicationsPage = () => {
               </div>
 
               <div>
-                <Label htmlFor="tenure">Tenure (months) *</Label>
+                <Label htmlFor="tenure">Tenure ({selectedProduct?.tenureUnit || 'months'}) *</Label>
                 <Input
                   id="tenure"
                   type="number"
@@ -528,6 +538,46 @@ const ApplicationsPage = () => {
                   value={newApplication.tenure}
                   onChange={(e) => setNewApplication((prev) => ({ ...prev, tenure: parseInt(e.target.value) || 1 }))}
                   placeholder="Enter tenure"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="feeTreatment">Fees</Label>
+                <Select
+                  value={newApplication.feeTreatment}
+                  onValueChange={(value) => setNewApplication((prev) => ({ ...prev, feeTreatment: value as FeeTreatment }))}
+                >
+                  <SelectTrigger id="feeTreatment">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="upfront">Deduct upfront</SelectItem>
+                    <SelectItem value="spread">Spread over instalments</SelectItem>
+                    <SelectItem value="first_instalment">Add to 1st instalment</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="penaltyDailyRate">Penalty (%/day)</Label>
+                <Input
+                  id="penaltyDailyRate"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={newApplication.penaltyDailyRate}
+                  onChange={(e) => setNewApplication((prev) => ({ ...prev, penaltyDailyRate: parseFloat(e.target.value) || 0 }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="penaltyGracePeriodDays">Grace (days)</Label>
+                <Input
+                  id="penaltyGracePeriodDays"
+                  type="number"
+                  min="0"
+                  value={newApplication.penaltyGracePeriodDays}
+                  onChange={(e) => setNewApplication((prev) => ({ ...prev, penaltyGracePeriodDays: parseInt(e.target.value) || 0 }))}
                 />
               </div>
             </div>
@@ -556,7 +606,9 @@ const ApplicationsPage = () => {
 
       {/* View Application Dialog */}
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[600px]">
+        <DialogContent
+          className={`max-h-[90vh] overflow-y-auto ${selectedApplication && isDisbursed(selectedApplication.status) ? 'sm:max-w-[780px]' : 'sm:max-w-[600px]'}`}
+        >
           <DialogHeader>
             <DialogTitle>Loan Application Details</DialogTitle>
           </DialogHeader>
@@ -608,10 +660,31 @@ const ApplicationsPage = () => {
                       {selectedApplication.requestedTerm} {selectedApplication.tenureUnit || 'months'}
                     </p>
                   </div>
-                  {selectedApplication.interestRate && (
+                  {selectedApplication.interestRate != null && (
                     <div>
                       <p className="text-sm text-muted-foreground">Interest Rate</p>
-                      <p className="font-medium">{selectedApplication.interestRate}%</p>
+                      <p className="font-medium">
+                        {selectedApplication.interestRate}%
+                        {selectedApplication.interestType ? ` (${selectedApplication.interestType.replace('_', ' ')})` : ''}
+                      </p>
+                    </div>
+                  )}
+                  {selectedApplication.productName && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Loan Product</p>
+                      <p className="font-medium">{selectedApplication.productName}</p>
+                    </div>
+                  )}
+                  {selectedApplication.totalRepayable != null && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Repayable</p>
+                      <p className="font-medium">{formatCurrency(selectedApplication.totalRepayable)}</p>
+                    </div>
+                  )}
+                  {selectedApplication.loan.rejectionReason && (
+                    <div className="col-span-2">
+                      <p className="text-sm text-muted-foreground">Rejection Reason</p>
+                      <p className="font-medium">{selectedApplication.loan.rejectionReason}</p>
                     </div>
                   )}
                   <div className="col-span-2">
@@ -620,10 +693,28 @@ const ApplicationsPage = () => {
                   </div>
                 </div>
               </div>
+
+              {isDisbursed(selectedApplication.status) && (
+                <>
+                  <Separator />
+                  <LoanServicingPanel
+                    loanId={selectedApplication._id}
+                    status={selectedApplication.status}
+                    canPostPayments={canUpdateApplications()}
+                    canDefault={canDefaultLoans()}
+                  />
+                </>
+              )}
             </div>
           )}
 
           <DialogFooter>
+            {selectedApplication && canUpdateApplications() && (
+              <Button variant="outline" onClick={() => setLoanToEdit(selectedApplication)}>
+                <Pencil className="mr-2 size-4" />
+                {selectedApplication.status === 'pending' ? 'Edit Terms' : 'Edit Remarks'}
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setViewDialogOpen(false)}>
               Close
             </Button>
@@ -631,27 +722,11 @@ const ApplicationsPage = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Delete Application</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this loan application for {selectedApplication?.customer}?
-              <br />
-              <span className="font-medium text-destructive">This action cannot be undone.</span>
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleDeleteApplication} disabled={isDeleting}>
-              {isDeleting ? 'Deleting...' : 'Delete Application'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <EditLoanTermsDialog
+        loan={loanToEdit}
+        onOpenChange={(open) => !open && setLoanToEdit(null)}
+        onSaved={(row) => setSelectedApplication(row)}
+      />
     </div>
   );
 };

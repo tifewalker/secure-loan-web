@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
@@ -28,7 +27,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { format, formatDistanceToNow } from 'date-fns';
 import { useLoanApplications } from '@/hooks/useLoanApplications';
-import type { LoanApplication } from '../../types';
+import { toast } from '@/hooks/use-toast';
+import type { LoanRow } from '@/components/loans/loan-utils';
 
 const DisbursementPage = () => {
   const {
@@ -50,14 +50,14 @@ const DisbursementPage = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
-  const [selectedApplication, setSelectedApplication] = useState<LoanApplication | null>(null);
-  const [disbursementNote, setDisbursementNote] = useState('');
+  const [selectedApplication, setSelectedApplication] = useState<LoanRow | null>(null);
+  const today = new Date().toISOString().slice(0, 10);
+  const [disbursementDate, setDisbursementDate] = useState(today);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmDisburse, setConfirmDisburse] = useState(false);
 
   const showToast = (title: string, description: string, variant: 'default' | 'destructive' = 'default') => {
-    console.log(`${variant === 'destructive' ? '❌' : '✅'} ${title}: ${description}`);
-    alert(`${variant === 'destructive' ? '❌' : '✅'} ${title}\n${description}`);
+    toast({ title, description, variant });
   };
 
   // Only approved loans (ready for disbursement)
@@ -108,9 +108,9 @@ const DisbursementPage = () => {
     }
   };
 
-  const handleOpenDisburse = (app: LoanApplication) => {
+  const handleOpenDisburse = (app: LoanRow) => {
     setSelectedApplication(app);
-    setDisbursementNote('');
+    setDisbursementDate(today);
     setViewDialogOpen(true);
   };
 
@@ -123,14 +123,16 @@ const DisbursementPage = () => {
     if (!selectedApplication) return;
     setIsSubmitting(true);
 
-    const result = await disburseApplication(selectedApplication._id);
+    // Only send a date when back-dating; the API defaults to now.
+    const date = disbursementDate && disbursementDate !== today ? new Date(disbursementDate).toISOString() : undefined;
+    const result = await disburseApplication(selectedApplication._id, date);
 
     if (result.success) {
       showToast('Success', 'Loan disbursed successfully');
       setConfirmDisburse(false);
       setViewDialogOpen(false);
       setSelectedApplication(null);
-      setDisbursementNote('');
+      setDisbursementDate(today);
     } else {
       showToast('Error', result.error || 'Failed to disburse loan', 'destructive');
     }
@@ -399,18 +401,32 @@ const DisbursementPage = () => {
                       {selectedApplication.requestedTerm} {selectedApplication.tenureUnit || 'months'}
                     </p>
                   </div>
-                  {selectedApplication.interestRate && (
+                  {selectedApplication.interestRate != null && (
                     <div>
                       <p className="text-sm text-muted-foreground">Interest Rate</p>
                       <p className="font-medium">{selectedApplication.interestRate}%</p>
                     </div>
                   )}
-                  {selectedApplication.totalRepayable && (
+                  {selectedApplication.totalRepayable != null && (
                     <div>
                       <p className="text-sm text-muted-foreground">Total Repayable</p>
                       <p className="font-medium">{formatCurrency(selectedApplication.totalRepayable)}</p>
                     </div>
                   )}
+                  <div>
+                    <p className="text-sm text-muted-foreground">Net Payout</p>
+                    <p className="font-medium">
+                      {formatCurrency(
+                        selectedApplication.amount -
+                          (selectedApplication.loan.feeTreatment === 'upfront' ? selectedApplication.loan.totalFees ?? 0 : 0),
+                      )}
+                    </p>
+                    {selectedApplication.loan.feeTreatment === 'upfront' && !!selectedApplication.loan.totalFees && (
+                      <p className="text-xs text-muted-foreground">
+                        After {formatCurrency(selectedApplication.loan.totalFees)} upfront fees
+                      </p>
+                    )}
+                  </div>
                   <div className="col-span-2">
                     <p className="text-sm text-muted-foreground">Purpose</p>
                     <p className="font-medium">{selectedApplication.purpose || 'General Loan'}</p>
@@ -420,17 +436,20 @@ const DisbursementPage = () => {
 
               <Separator />
 
-              {/* Disbursement Note */}
+              {/* Disbursement Date */}
               <div>
-                <Label htmlFor="disbursementNote">Disbursement Note (Optional)</Label>
-                <Textarea
-                  id="disbursementNote"
-                  value={disbursementNote}
-                  onChange={(e) => setDisbursementNote(e.target.value)}
-                  placeholder="Add any notes about this disbursement..."
-                  className="mt-2 resize-none"
-                  rows={3}
+                <Label htmlFor="disbursementDate">Disbursement Date</Label>
+                <Input
+                  id="disbursementDate"
+                  type="date"
+                  max={today}
+                  value={disbursementDate}
+                  onChange={(e) => setDisbursementDate(e.target.value)}
+                  className="mt-2"
                 />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The repayment schedule starts from this date. Due dates on weekends or holidays move to the next business day.
+                </p>
               </div>
             </div>
           )}

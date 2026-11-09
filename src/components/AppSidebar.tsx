@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, FileText, UserCheck, Settings, LogOut,
   Menu, X, ChevronDown, ChevronRight, ChevronsUpDown, Bell, Search, Wallet,
   TrendingUp, Percent, BookOpen, Shield, CreditCard, ArrowLeftRight,
-  ScrollText, UserCog, Banknote, Building2
+  ScrollText, UserCog, Banknote, Building2, CalendarDays
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -83,6 +83,7 @@ const navItems: NavItem[] = [
     children: [
       { name: 'Interest Management', href: '/admin/interest-management', icon: Percent },
       { name: 'Fee Management', href: '/admin/fee-management', icon: ScrollText },
+      { name: 'Holidays', href: '/admin/holidays', icon: CalendarDays },
     ],
   },
   {

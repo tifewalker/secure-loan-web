@@ -5,16 +5,33 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { DocumentUpload } from './DocumentUpload';
-import type { CreateCustomerData } from '@/types';
+import type { BankAccountType, CreateCustomerRequest, CustomerTitle } from '@/api';
+
+/** Files picked on the form; uploaded after the customer is created. */
+export interface CustomerFormDocuments {
+  passport: File | null;
+  nin: File | null;
+  signature: File | null;
+}
+
+/** Form state: every input is a string until submit. */
+type CustomerFormState = Omit<CreateCustomerRequest, 'title' | 'monthlyIncome' | 'accountType'> & {
+  title: CustomerTitle | '';
+  monthlyIncome: string;
+  accountType: BankAccountType;
+} & CustomerFormDocuments;
 
 interface CustomerFormProps {
-  onSubmit: (data: CreateCustomerData) => Promise<{ success: boolean; error?: string }>;
+  onSubmit: (
+    data: CreateCustomerRequest,
+    documents: CustomerFormDocuments,
+  ) => Promise<{ success: boolean; error?: string }>;
   onCancel: () => void;
   userFullName?: string;
   userRole?: string;
 }
 
-const initialFormData: CreateCustomerData = {
+const initialFormData: CustomerFormState = {
   // Personal Information
   title: '',
   firstName: '',
@@ -62,7 +79,6 @@ const initialFormData: CreateCustomerData = {
   accountNumber: '',
   accountName: '',
   accountType: 'savings',
-  bankBranch: '',
 
   // Documents
   passport: null,
@@ -76,7 +92,7 @@ export const CustomerForm: React.FC<CustomerFormProps> = ({
   userFullName,
   userRole,
 }) => {
-  const [formData, setFormData] = useState<CreateCustomerData>(initialFormData);
+  const [formData, setFormData] = useState<CustomerFormState>(initialFormData);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -99,7 +115,15 @@ export const CustomerForm: React.FC<CustomerFormProps> = ({
     setIsSubmitting(true);
     setFormError(null);
 
-    const result = await onSubmit(formData);
+    const { passport, nin, signature, title, monthlyIncome, ...fields } = formData;
+    const result = await onSubmit(
+      {
+        ...fields,
+        title: title as CustomerTitle,
+        monthlyIncome: monthlyIncome ? Number(monthlyIncome) : undefined,
+      },
+      { passport, nin, signature },
+    );
 
     if (!result.success) {
       setFormError(result.error || 'Failed to create customer');
@@ -160,7 +184,7 @@ export const CustomerForm: React.FC<CustomerFormProps> = ({
                   <option value="">Select Title</option>
                   <option value="Mr">Mr</option>
                   <option value="Mrs">Mrs</option>
-                  <option value="Ms">Ms</option>
+                  <option value="Miss">Miss</option>
                   <option value="Dr">Dr</option>
                 </select>
               </div>
@@ -402,14 +426,9 @@ export const CustomerForm: React.FC<CustomerFormProps> = ({
                   className="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 >
                   <option value="savings">Savings</option>
-                  <option value="checking">Checking</option>
                   <option value="current">Current</option>
                 </select>
               </div>
-            </div>
-            <div>
-              <Label htmlFor="bankBranch">Bank Branch</Label>
-              <Input id="bankBranch" name="bankBranch" value={formData.bankBranch || ''} onChange={handleInputChange} className="mt-2" />
             </div>
           </CardContent>
         </Card>
@@ -429,27 +448,27 @@ export const CustomerForm: React.FC<CustomerFormProps> = ({
                 label="Passport Photograph"
                 file={formData.passport || null}
                 onChange={(file) => handleDocumentChange('passport', file)}
-                accept="image/*"
+                accept="image/png,image/jpeg,image/webp"
                 required
-                hint="PNG or JPG up to 5MB"
+                hint="PNG, JPG or WebP up to 10MB"
               />
               <DocumentUpload
                 id="nin"
                 label="NIN Document"
                 file={formData.nin || null}
                 onChange={(file) => handleDocumentChange('nin', file)}
-                accept="image/*,application/pdf"
+                accept="image/png,image/jpeg,image/webp,application/pdf"
                 required
-                hint="PNG, JPG, or PDF up to 5MB"
+                hint="PNG, JPG, WebP or PDF up to 10MB"
               />
               <DocumentUpload
                 id="signature"
                 label="Signature"
                 file={formData.signature || null}
                 onChange={(file) => handleDocumentChange('signature', file)}
-                accept="image/*"
+                accept="image/png,image/jpeg,image/webp"
                 required
-                hint="PNG or JPG up to 5MB"
+                hint="PNG, JPG or WebP up to 10MB"
               />
             </div>
           </CardContent>

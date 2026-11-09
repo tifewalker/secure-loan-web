@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import {
   Search, RefreshCw, Download, Loader2, TrendingUp, DollarSign,
   Percent, FileText, MoreHorizontal, SlidersHorizontal,
-  CheckCircle, Clock, XCircle, Wallet,
+  CheckCircle, Clock, XCircle, Wallet, AlertTriangle, CalendarClock, Layers,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -21,104 +21,100 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { useReports } from '@/hooks/useReports';
+import { useReports, type ReportTab } from '@/hooks/useReports';
+import { LoanDetailsDialog } from '@/components/loans/LoanDetailsDialog';
+import { formatCurrency, getStatusColor, getStatusDisplay } from '@/components/loans/loan-utils';
+import type { Loan } from '@/api';
 import { format } from 'date-fns';
+
+const TABS: { value: ReportTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { value: 'active', label: 'Active', icon: TrendingUp },
+  { value: 'pending', label: 'Pending', icon: Clock },
+  { value: 'disbursed', label: 'Disbursed', icon: CheckCircle },
+  { value: 'closed', label: 'Closed', icon: XCircle },
+  { value: 'defaulted', label: 'Defaulted', icon: AlertTriangle },
+  { value: 'rejected', label: 'Rejected', icon: XCircle },
+  { value: 'overdue', label: 'Overdue', icon: CalendarClock },
+  { value: 'all', label: 'All Loans', icon: Layers },
+];
+
+const TAB_DESCRIPTIONS: Record<ReportTab, string> = {
+  active: 'Disbursed loans that are still being repaid',
+  pending: 'Booked loans awaiting approval',
+  disbursed: 'Every loan that has been paid out, including closed ones',
+  closed: 'Fully repaid or paid-off loans',
+  defaulted: 'Loans marked as defaulted',
+  rejected: 'Loans rejected before disbursement',
+  overdue: 'Every overdue instalment, oldest due date first',
+  all: 'Every loan in the system',
+};
+
+const fmtDate = (value?: string, pattern = 'MMM dd, yyyy') => {
+  try {
+    return value ? format(new Date(value), pattern) : 'N/A';
+  } catch {
+    return 'N/A';
+  }
+};
 
 const ReportsPage = () => {
   const {
-    activeLoans,
-    closedLoans,
-    disbursedLoans,
+    overdue,
+    counts,
     isLoading,
     error,
     activeTab,
     setActiveTab,
     getCurrentLoans,
     getSummaryStats,
+    getOverdueStats,
     fetchAllReports,
   } = useReports();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [detailsLoan, setDetailsLoan] = useState<Loan | null>(null);
 
+  const isOverdueTab = activeTab === 'overdue';
+  const search = searchTerm.toLowerCase();
   const currentLoans = getCurrentLoans();
   const summaryStats = getSummaryStats();
+  const overdueStats = getOverdueStats();
 
-  const filteredLoans = currentLoans.filter(loan => {
-    const customerName = loan.customerId?.fullName || '';
-    const matchesSearch = customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      loan.customerId?.email?.toLowerCase().includes(searchTerm.toLowerCase());
-
+  const filteredLoans = currentLoans.filter((loan) => {
+    const matchesSearch =
+      (loan.customerId?.fullName || '').toLowerCase().includes(search) ||
+      (loan.customerId?.email || '').toLowerCase().includes(search);
     const matchesStatus = statusFilter === 'all' || loan.status === statusFilter;
-
     return matchesSearch && matchesStatus;
   });
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-NG', {
-      style: 'currency',
-      currency: 'NGN',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
+  const filteredOverdue = overdue.filter(
+    (o) =>
+      (o.customer?.fullName || '').toLowerCase().includes(search) ||
+      (o.customer?.email || '').toLowerCase().includes(search),
+  );
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'approved':
-      case 'disbursed':
-        return <CheckCircle className="size-3" />;
-      case 'pending':
-        return <Clock className="size-3" />;
-      case 'rejected':
-      case 'closed':
-        return <XCircle className="size-3" />;
-      default:
-        return <Clock className="size-3" />;
-    }
-  };
+  // Status filter only makes sense on tabs that mix statuses.
+  const showStatusFilter = activeTab === 'all' || activeTab === 'disbursed';
 
-  const getStatusBadgeClass = (status: string) => {
-    switch (status) {
-      case 'approved':
-      case 'disbursed':
-        return 'border-green-200 bg-green-50 text-green-700';
-      case 'pending':
-        return 'border-yellow-200 bg-yellow-50 text-yellow-700';
-      case 'rejected':
-      case 'closed':
-        return 'border-gray-200 bg-gray-50 text-gray-600';
-      default:
-        return 'border-blue-200 bg-blue-50 text-blue-700';
-    }
-  };
+  const statCards = isOverdueTab
+    ? [
+        { label: 'Overdue Instalments', value: overdueStats.instalments, sub: 'Past due date', icon: CalendarClock },
+        { label: 'Loans Affected', value: overdueStats.loans, sub: 'With overdue instalments', icon: FileText },
+        { label: 'Amount Overdue', value: formatCurrency(overdueStats.amountOverdue), sub: 'Due minus paid', icon: DollarSign },
+        { label: 'Penalties', value: formatCurrency(overdueStats.penalties), sub: 'Unpaid penalties', icon: AlertTriangle },
+      ]
+    : [
+        { label: 'Total Loans', value: summaryStats.totalLoans, sub: 'In this report', icon: FileText },
+        { label: 'Principal', value: formatCurrency(summaryStats.totalPrincipal), sub: 'Total principal', icon: DollarSign },
+        { label: 'Interest', value: formatCurrency(summaryStats.totalInterest), sub: 'Total interest', icon: Percent },
+        { label: 'Outstanding', value: formatCurrency(summaryStats.totalOutstanding), sub: 'Still owed', icon: Wallet },
+      ];
 
-  const statCards = [
-    { label: 'Total Loans', value: summaryStats.totalLoans, sub: 'All time', icon: FileText },
-    { label: 'Principal', value: formatCurrency(summaryStats.totalPrincipal), sub: 'Total principal', icon: DollarSign },
-    { label: 'Interest', value: formatCurrency(summaryStats.totalInterest), sub: 'Total interest', icon: Percent },
-    { label: 'Total Repayable', value: formatCurrency(summaryStats.totalRepayable), sub: 'Principal + Interest', icon: Wallet },
-  ];
-
-  const handleExportCSV = () => {
-    const headers = ['Customer', 'Email', 'Principal', 'Interest', 'Total Repayable', 'Outstanding', 'Status', 'Start Date', 'Tenure'];
-    const csvContent = [
-      headers.join(','),
-      ...filteredLoans.map(loan => [
-        `"${loan.customerId?.fullName || 'Unknown'}"`,
-        `"${loan.customerId?.email || ''}"`,
-        `"${loan.principalAmount}"`,
-        `"${loan.interestAmount}"`,
-        `"${loan.totalRepayable}"`,
-        `"${loan.outstandingPrincipal + loan.outstandingInterest}"`,
-        `"${loan.status}"`,
-        `"${loan.startDate ? format(new Date(loan.startDate), 'yyyy-MM-dd') : ''}"`,
-        `"${loan.tenure} ${loan.tenureUnit}"`,
-      ].join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
+  const downloadCSV = (headers: string[], rows: (string | number)[][]) => {
+    const csv = [headers.join(','), ...rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
+    const url = window.URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     const a = document.createElement('a');
     a.href = url;
     a.download = `loan-report-${activeTab}-${format(new Date(), 'yyyy-MM-dd')}.csv`;
@@ -126,22 +122,57 @@ const ReportsPage = () => {
     window.URL.revokeObjectURL(url);
   };
 
+  const handleExportCSV = () => {
+    if (isOverdueTab) {
+      downloadCSV(
+        ['Customer', 'Email', 'Instalment', 'Due Date', 'Days Overdue', 'Total Due', 'Paid', 'Overdue Amount', 'Penalty'],
+        filteredOverdue.map((o) => [
+          o.customer?.fullName || 'Unknown',
+          o.customer?.email || '',
+          o.instalmentNumber ?? '',
+          fmtDate(o.dueDate, 'yyyy-MM-dd'),
+          o.daysOverdue ?? '',
+          o.totalDue ?? 0,
+          o.totalPaid ?? 0,
+          o.amountOverdue,
+          o.penaltyDue ?? 0,
+        ]),
+      );
+      return;
+    }
+    downloadCSV(
+      ['Customer', 'Email', 'Principal', 'Interest', 'Total Repayable', 'Outstanding', 'Status', 'Start Date', 'Tenure'],
+      filteredLoans.map((loan) => [
+        loan.customerId?.fullName || 'Unknown',
+        loan.customerId?.email || '',
+        loan.principalAmount,
+        loan.interestAmount,
+        loan.totalRepayable,
+        loan.outstandingTotal,
+        getStatusDisplay(loan.status),
+        loan.startDate ? fmtDate(loan.startDate, 'yyyy-MM-dd') : '',
+        `${loan.tenure} ${loan.tenureUnit}`,
+      ]),
+    );
+  };
+
+  const rowCount = isOverdueTab ? filteredOverdue.length : filteredLoans.length;
+  const totalCount = isOverdueTab ? overdue.length : currentLoans.length;
+
   return (
     <div className="space-y-6">
       {/* Page header */}
       <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Loan Reports</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            View and analyze loan portfolio performance
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">{TAB_DESCRIPTIONS[activeTab]}</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={fetchAllReports} disabled={isLoading}>
+          <Button variant="outline" size="sm" onClick={() => fetchAllReports()} disabled={isLoading}>
             <RefreshCw className="mr-2 size-4" />
             Refresh
           </Button>
-          <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={filteredLoans.length === 0}>
+          <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={rowCount === 0}>
             <Download className="mr-2 size-4" />
             Export CSV
           </Button>
@@ -149,23 +180,24 @@ const ReportsPage = () => {
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="w-full">
-        <TabsList className="w-full justify-start rounded-lg border bg-muted/50 p-1 sm:w-auto">
-          <TabsTrigger value="active" className="gap-1.5 text-xs">
-            <TrendingUp className="size-3.5" />
-            Active Loans
-            <Badge variant="outline" className="ml-1 text-xs font-normal">{activeLoans.length}</Badge>
-          </TabsTrigger>
-          <TabsTrigger value="closed" className="gap-1.5 text-xs">
-            <XCircle className="size-3.5" />
-            Closed Loans
-            <Badge variant="outline" className="ml-1 text-xs font-normal">{closedLoans.length}</Badge>
-          </TabsTrigger>
-          <TabsTrigger value="disbursed" className="gap-1.5 text-xs">
-            <CheckCircle className="size-3.5" />
-            Disbursed
-            <Badge variant="outline" className="ml-1 text-xs font-normal">{disbursedLoans.length}</Badge>
-          </TabsTrigger>
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          setActiveTab(value as ReportTab);
+          setStatusFilter('all');
+        }}
+        className="w-full"
+      >
+        <TabsList className="h-auto w-full flex-wrap justify-start rounded-lg border bg-muted/50 p-1 sm:w-auto">
+          {TABS.map(({ value, label, icon: Icon }) => (
+            <TabsTrigger key={value} value={value} className="gap-1.5 text-xs">
+              <Icon className="size-3.5" />
+              {label}
+              {counts[value] !== undefined && (
+                <Badge variant="outline" className="ml-1 text-xs font-normal">{counts[value]}</Badge>
+              )}
+            </TabsTrigger>
+          ))}
         </TabsList>
       </Tabs>
 
@@ -197,22 +229,26 @@ const ReportsPage = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="h-9 w-full gap-1.5 border-dashed sm:w-[150px]">
-              <SlidersHorizontal className="size-3.5 text-muted-foreground" />
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All status</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="approved">Approved</SelectItem>
-              <SelectItem value="rejected">Rejected</SelectItem>
-              <SelectItem value="disbursed">Disbursed</SelectItem>
-            </SelectContent>
-          </Select>
+          {showStatusFilter && (
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-9 w-full gap-1.5 border-dashed sm:w-[150px]">
+                <SlidersHorizontal className="size-3.5 text-muted-foreground" />
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All status</SelectItem>
+                {activeTab === 'all' && <SelectItem value="pending">Under Review</SelectItem>}
+                {activeTab === 'all' && <SelectItem value="approved">Approved</SelectItem>}
+                {activeTab === 'all' && <SelectItem value="rejected">Rejected</SelectItem>}
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="defaulted">Defaulted</SelectItem>
+                <SelectItem value="closed">Closed</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
         </div>
         <div className="text-xs text-muted-foreground">
-          {filteredLoans.length} of {currentLoans.length} loans
+          {rowCount} of {totalCount} {isOverdueTab ? 'instalments' : 'loans'}
         </div>
       </div>
 
@@ -225,20 +261,94 @@ const ReportsPage = () => {
         ) : error ? (
           <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
             <p className="text-sm text-destructive">{error}</p>
-            <Button variant="outline" size="sm" onClick={fetchAllReports}>
+            <Button variant="outline" size="sm" onClick={() => fetchAllReports()}>
               Retry
             </Button>
           </div>
-        ) : filteredLoans.length === 0 ? (
+        ) : rowCount === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
             <FileText className="size-8 text-muted-foreground" />
-            <h3 className="text-sm font-medium">No loans found</h3>
+            <h3 className="text-sm font-medium">{isOverdueTab ? 'No overdue instalments' : 'No loans found'}</h3>
             <p className="text-sm text-muted-foreground">
-              {searchTerm || statusFilter !== 'all'
-                ? 'Try adjusting your filters.'
-                : `No ${activeTab} loans available.`}
+              {searchTerm || statusFilter !== 'all' ? 'Try adjusting your filters.' : 'Nothing in this report yet.'}
             </p>
           </div>
+        ) : isOverdueTab ? (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Customer</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Instalment</th>
+                <th className="hidden px-4 py-3 text-right text-xs font-medium text-muted-foreground sm:table-cell">Due Date</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground">Days Overdue</th>
+                <th className="hidden px-4 py-3 text-right text-xs font-medium text-muted-foreground md:table-cell">Total Due</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground">Overdue</th>
+                <th className="hidden px-4 py-3 text-right text-xs font-medium text-muted-foreground lg:table-cell">Penalty</th>
+                <th className="w-10 px-2 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {filteredOverdue.map((o) => (
+                <tr key={o._id} className="group border-b transition-colors last:border-b-0 hover:bg-accent/30">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-red-50">
+                        <CalendarClock className="size-3.5 text-red-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium">{o.customer?.fullName || 'Unknown'}</div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {o.customer?.phoneNumber || o.customer?.email}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    #{o.instalmentNumber}
+                    {o.loan?.principalAmount != null && (
+                      <div className="text-xs text-muted-foreground">of {formatCurrency(o.loan.principalAmount)} loan</div>
+                    )}
+                  </td>
+                  <td className="hidden px-4 py-3 text-right text-xs text-muted-foreground sm:table-cell">{fmtDate(o.dueDate)}</td>
+                  <td className="px-4 py-3 text-right">
+                    <Badge variant="outline" className="border-red-200 bg-red-50 font-normal text-red-700">
+                      {o.daysOverdue ?? 0}d
+                    </Badge>
+                  </td>
+                  <td className="hidden px-4 py-3 text-right text-sm tabular-nums md:table-cell">{formatCurrency(o.totalDue)}</td>
+                  <td className="px-4 py-3 text-right text-sm font-medium tabular-nums">{formatCurrency(o.amountOverdue)}</td>
+                  <td className="hidden px-4 py-3 text-right text-sm tabular-nums lg:table-cell">{formatCurrency(o.penaltyDue)}</td>
+                  <td className="px-2 py-3">
+                    {o.loan && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-7 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
+                          >
+                            <MoreHorizontal className="size-4" />
+                            <span className="sr-only">Open menu</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              setDetailsLoan({ ...o.loan!, customerId: typeof o.loan!.customerId === 'object' ? o.loan!.customerId : o.customer ?? o.loan!.customerId })
+                            }
+                          >
+                            <FileText className="mr-2 size-4" />
+                            View Loan
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ) : (
           <table className="w-full">
             <thead>
@@ -267,29 +377,19 @@ const ReportsPage = () => {
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-right text-sm tabular-nums">
-                    {formatCurrency(loan.principalAmount)}
-                  </td>
-                  <td className="hidden px-4 py-3 text-right text-sm tabular-nums sm:table-cell">
-                    {formatCurrency(loan.interestAmount)}
-                  </td>
+                  <td className="px-4 py-3 text-right text-sm tabular-nums">{formatCurrency(loan.principalAmount)}</td>
+                  <td className="hidden px-4 py-3 text-right text-sm tabular-nums sm:table-cell">{formatCurrency(loan.interestAmount)}</td>
                   <td className="hidden px-4 py-3 text-right text-sm font-medium tabular-nums md:table-cell">
                     {formatCurrency(loan.totalRepayable)}
                   </td>
-                  <td className="hidden px-4 py-3 text-right text-sm tabular-nums lg:table-cell">
-                    {formatCurrency(loan.outstandingPrincipal + loan.outstandingInterest)}
-                  </td>
+                  <td className="hidden px-4 py-3 text-right text-sm tabular-nums lg:table-cell">{formatCurrency(loan.outstandingTotal)}</td>
                   <td className="hidden px-4 py-3 sm:table-cell">
-                    <Badge
-                      variant="outline"
-                      className={`flex w-fit items-center gap-1 font-normal ${getStatusBadgeClass(loan.status)}`}
-                    >
-                      {getStatusIcon(loan.status)}
-                      {loan.status.charAt(0).toUpperCase() + loan.status.slice(1)}
+                    <Badge variant="outline" className={`flex w-fit items-center gap-1 font-normal ${getStatusColor(loan.status)}`}>
+                      {getStatusDisplay(loan.status)}
                     </Badge>
                   </td>
                   <td className="hidden px-4 py-3 text-right text-xs text-muted-foreground md:table-cell">
-                    {loan.startDate ? format(new Date(loan.startDate), 'MMM dd, yyyy') : 'N/A'}
+                    {loan.startDate ? fmtDate(loan.startDate) : 'N/A'}
                   </td>
                   <td className="px-2 py-3">
                     <DropdownMenu>
@@ -305,7 +405,7 @@ const ReportsPage = () => {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setDetailsLoan(loan.loan)}>
                           <FileText className="mr-2 size-4" />
                           View Details
                         </DropdownMenuItem>
@@ -318,6 +418,8 @@ const ReportsPage = () => {
           </table>
         )}
       </div>
+
+      <LoanDetailsDialog loan={detailsLoan} onOpenChange={(open) => !open && setDetailsLoan(null)} />
     </div>
   );
 };

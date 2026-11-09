@@ -1,146 +1,119 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useMemo } from 'react';
+import {
+  getErrorMessage,
+  useCreateLoanProduct,
+  useDeleteLoanProduct,
+  useFees,
+  useGLAccounts,
+  useInterests,
+  useLoanProducts as useLoanProductsQuery,
+  useToggleLoanProductActivation,
+  useUpdateLoanProduct,
+  type CreateLoanProductRequest,
+  type LoanProduct,
+  type UpdateLoanProductRequest,
+} from '@/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { useDirectPermissions } from '@/hooks/useDirectPermissions';
-import { loanService } from '@/services/loan.service';
-import { interestService } from '@/services/interest.service';
-import { glAccountService } from '@/services/gl-account.service';
-import type { LoanProduct, CreateLoanProductData, Interest, GLAccount } from '../types';
+import { toast } from '@/hooks/use-toast';
+import {
+  isActiveRecord,
+  makeGLLookup,
+  toFeeRow,
+  toGLRow,
+  toInterestRow,
+} from '@/components/accounting/accounting-utils';
+import { formatCurrency } from '@/components/loans/loan-utils';
+
+/** Loan product with the fields the table relies on filled in. */
+export interface LoanProductRow extends LoanProduct {
+  _id: string;
+  name: string;
+  description: string;
+  minAmount: number;
+  maxAmount: number;
+  tenure: number;
+  tenureUnit: NonNullable<LoanProduct['tenureUnit']>;
+  interestId: string;
+  isActive: boolean;
+}
+
+const toProductRow = (p: LoanProduct): LoanProductRow => ({
+  ...p,
+  _id: p._id ?? '',
+  name: p.name ?? '',
+  description: p.description ?? '',
+  minAmount: p.minAmount ?? 0,
+  maxAmount: p.maxAmount ?? 0,
+  tenure: p.tenure ?? 0,
+  tenureUnit: p.tenureUnit ?? 'months',
+  interestId: p.interestId ?? '',
+  isActive: isActiveRecord(p),
+});
+
+type Result = { success: boolean; error?: string };
 
 export const useLoanProducts = () => {
-  const { user, isAuthenticated, authInitialized, isLoading: authLoading } = useAuth();
-  const { hasPermission, isAdmin } = useDirectPermissions();
-  
-  const [loanProducts, setLoanProducts] = useState<LoanProduct[]>([]);
-  const [interests, setInterests] = useState<Interest[]>([]);
-  const [glAccounts, setGlAccounts] = useState<GLAccount[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const { user, isAuthenticated, authInitialized, isLoading: authLoading, hasPermission, isAdmin } = useAuth();
 
-  const fetchData = useCallback(async () => {
-    if (!isAuthenticated) {
-      setLoading(false);
-      return;
-    }
+  const productsQuery = useLoanProductsQuery({ enabled: isAuthenticated });
+  const interestsQuery = useInterests({ enabled: isAuthenticated });
+  const feesQuery = useFees({ enabled: isAuthenticated });
+  const glQuery = useGLAccounts({ enabled: isAuthenticated });
 
-    setLoading(true);
-    setError(null);
-    
+  const loanProducts = useMemo(() => (productsQuery.data ?? []).map(toProductRow), [productsQuery.data]);
+  const interests = useMemo(() => (interestsQuery.data ?? []).map(toInterestRow), [interestsQuery.data]);
+  const fees = useMemo(() => (feesQuery.data ?? []).map(toFeeRow), [feesQuery.data]);
+  const glAccounts = useMemo(() => (glQuery.data ?? []).map(toGLRow), [glQuery.data]);
+  const gl = useMemo(() => makeGLLookup(glAccounts), [glAccounts]);
+
+  const create = useCreateLoanProduct();
+  const update = useUpdateLoanProduct();
+  const toggle = useToggleLoanProductActivation();
+  const remove = useDeleteLoanProduct();
+
+  const run = async (fn: () => Promise<unknown>, success: string, failure: string): Promise<Result> => {
     try {
-      const [productsData, interestsData, accountsData] = await Promise.all([
-        loanService.getLoanProducts(),
-        interestService.getAll(),
-        glAccountService.getAll()
-      ]);
-      
-      setLoanProducts(productsData);
-      setInterests(interestsData);
-      setGlAccounts(accountsData);
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to fetch data';
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  const createProduct = async (data: CreateLoanProductData): Promise<{ success: boolean; error?: string; data?: LoanProduct }> => {
-    setIsCreating(true);
-    setError(null);
-    
-    try {
-      const newProduct = await loanService.createLoanProduct(data);
-      setLoanProducts(prev => [...prev, newProduct]);
-      return { success: true, data: newProduct };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to create loan product';
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
-    } finally {
-      setIsCreating(false);
+      await fn();
+      toast({ title: success });
+      return { success: true };
+    } catch (err) {
+      const error = getErrorMessage(err, failure);
+      toast({ title: failure, description: error, variant: 'destructive' });
+      return { success: false, error };
     }
   };
 
-  const updateProduct = async (productId: string, data: CreateLoanProductData): Promise<{ success: boolean; error?: string; data?: LoanProduct }> => {
-    setIsUpdating(true);
-    setError(null);
-    
-    try {
-      const updatedProduct = await loanService.updateLoanProduct(productId, data);
-      setLoanProducts(prev => prev.map(p => p._id === productId ? updatedProduct : p));
-      return { success: true, data: updatedProduct };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update loan product';
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
-    } finally {
-      setIsUpdating(false);
-    }
+  const createProduct = (data: CreateLoanProductRequest) =>
+    run(() => create.mutateAsync(data), 'Loan product created', 'Failed to create loan product');
+
+  /** Booked loans keep the terms and GL mapping they were booked with. */
+  const updateProduct = (id: string, data: UpdateLoanProductRequest) =>
+    run(() => update.mutateAsync({ id, data }), 'Loan product updated', 'Failed to update loan product');
+
+  const toggleProductStatus = (id: string, currentlyActive: boolean) =>
+    run(
+      () => toggle.mutateAsync(id),
+      `Loan product ${currentlyActive ? 'deactivated' : 'activated'}`,
+      'Failed to update product status',
+    );
+
+  const deleteProduct = (id: string) =>
+    run(() => remove.mutateAsync(id), 'Loan product deleted', 'Failed to delete loan product');
+
+  const getInterestName = (interestId?: string): string => {
+    const interest = interests.find((i) => i._id === interestId);
+    return interest
+      ? `${interest.name} (${interest.rate}% ${interest.calculationPeriod}, ${interest.rateType.replace('_', ' ')})`
+      : 'N/A';
   };
 
-  const deleteProduct = async (productId: string): Promise<{ success: boolean; error?: string }> => {
-    setIsDeleting(true);
-    setError(null);
-    
-    try {
-      const result = await loanService.deleteLoanProduct(productId);
-      if (result.success) {
-        setLoanProducts(prev => prev.filter(p => p._id !== productId));
-        return { success: true };
-      }
-      return { success: false, error: result.message };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to delete loan product';
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
-    } finally {
-      setIsDeleting(false);
-    }
+  const getFeeName = (feeId?: string): string => {
+    if (!feeId) return 'No fee';
+    const fee = fees.find((f) => f._id === feeId);
+    return fee ? `${fee.name} (${fee.type === 'percentage' ? `${fee.value}%` : formatCurrency(fee.value)})` : 'N/A';
   };
 
-  const toggleProductStatus = async (productId: string, currentStatus: boolean): Promise<{ success: boolean; error?: string; data?: LoanProduct }> => {
-    try {
-      const updatedProduct = await loanService.toggleLoanProductActivation(productId, currentStatus);
-      setLoanProducts(prev => prev.map(p => p._id === productId ? updatedProduct : p));
-      return { success: true, data: updatedProduct };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update product status';
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
-    }
-  };
-
-  const getInterestName = (interestId: string): string => {
-    const interest = interests.find(i => i._id === interestId);
-    return interest ? `${interest.name} (${interest.rate}% ${interest.rateType})` : 'N/A';
-  };
-
-  const getAccountName = (accountId: string): string => {
-    const account = glAccounts.find(a => a._id === accountId);
-    return account ? `${account.glCode} - ${account.glName}` : 'N/A';
-  };
-
-  const formatAmount = (amount: number): string => {
-    return new Intl.NumberFormat('en-NG', {
-      style: 'currency',
-      currency: 'NGN',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
-
-  const getSummaryStats = () => ({
-    totalProducts: loanProducts.length,
-    activeProducts: loanProducts.filter(p => p.isActive).length,
-    totalAmountRange: loanProducts.reduce((sum, p) => sum + p.maxAmount, 0),
-  });
+  const firstError = productsQuery.error;
 
   return {
     user,
@@ -149,22 +122,30 @@ export const useLoanProducts = () => {
     authLoading,
     hasPermission,
     isAdmin,
+    canDelete: isAdmin || hasPermission('delete_loan_products'),
     loanProducts,
     interests,
+    fees,
     glAccounts,
-    loading,
-    error,
-    isCreating,
-    isUpdating,
-    isDeleting,
-    fetchData,
+    loading: productsQuery.isLoading,
+    error: firstError ? getErrorMessage(firstError, 'Failed to fetch loan products') : null,
+    isCreating: create.isPending,
+    isUpdating: update.isPending,
+    isDeleting: remove.isPending,
+    isToggling: toggle.isPending,
+    fetchData: () => Promise.all([productsQuery.refetch(), interestsQuery.refetch(), feesQuery.refetch(), glQuery.refetch()]),
     createProduct,
     updateProduct,
     deleteProduct,
     toggleProductStatus,
     getInterestName,
-    getAccountName,
-    formatAmount,
-    getSummaryStats,
+    getFeeName,
+    getAccountName: gl.name,
+    formatAmount: formatCurrency,
+    getSummaryStats: () => ({
+      totalProducts: loanProducts.length,
+      activeProducts: loanProducts.filter((p) => p.isActive).length,
+      totalAmountRange: loanProducts.reduce((sum, p) => sum + p.maxAmount, 0),
+    }),
   };
 };

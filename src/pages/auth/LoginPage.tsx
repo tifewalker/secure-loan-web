@@ -89,10 +89,7 @@ const LoginPage = () => {
               </Button>
 
               <div className="text-center text-sm text-gray-600">
-                Don't have an account?{' '}
-                <Link to="/register" className="text-blue-600 hover:text-blue-800 font-medium">
-                  Sign up
-                </Link>
+                Don't have an account? Ask your administrator to create one.
               </div>
             </form>
           </CardContent>

@@ -5,8 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
   Search, Plus, User as UserIcon, MoreHorizontal,
-  SlidersHorizontal, Ban, ShieldCheck, Loader2,
+  SlidersHorizontal, Ban, ShieldCheck, Loader2, Trash2,
 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -14,69 +15,97 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import type { Customer, User } from '../../types';
+import type { Customer } from '@/api';
+import type { AuthUser } from '@/contexts/AuthContext';
+import { toast } from '@/hooks/use-toast';
+import { customerName, type CustomerLoanCounts } from './customer-utils';
 
 interface CustomerListProps {
   customers: Customer[];
+  /** Loan counts keyed by customer _id. */
+  loanCounts: Map<string, CustomerLoanCounts>;
   isLoading: boolean;
   error: string | null;
   onRetry: () => void;
   onViewCustomer: (customer: Customer) => void;
   onAddCustomer: () => void;
-  searchCustomers: (searchTerm: string) => Customer[];
-  summaryStats: {
-    totalCustomers: number;
-    activeCustomers: number;
-    totalLoans: number;
-    activeLoans: number;
-  };
   hasPermission: (permission: string) => boolean;
-  onToggleStatus: (customerId: string, currentStatus: string) => Promise<{ success: boolean; error?: string }>;
-  user: User | null;
+  onToggleStatus: (customerId: string) => Promise<{ success: boolean; status?: string; error?: string }>;
+  onDeleteCustomer: (customerId: string) => Promise<{ success: boolean; error?: string }>;
+  isDeleting: boolean;
+  user: AuthUser | null;
 }
 
 export const CustomerList: React.FC<CustomerListProps> = ({
   customers,
+  loanCounts,
   isLoading,
   error,
   onRetry,
   onViewCustomer,
   onAddCustomer,
-  searchCustomers,
-  summaryStats,
   hasPermission,
   onToggleStatus,
+  onDeleteCustomer,
+  isDeleting,
   user,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
 
-  const filteredCustomers = searchCustomers(searchTerm).filter((customer) => {
-    if (statusFilter === 'all') return true;
-    return customer.status === statusFilter;
-  });
-
-  const handleToggleStatus = async (customerId: string, currentStatus: string) => {
-    const action = currentStatus === 'active' ? 'deactivate' : 'activate';
-    if (!hasPermission('update_customers')) {
-      alert(`You do not have permission to ${action} customers`);
-      return;
-    }
-    if (!window.confirm(`Are you sure you want to ${action} this customer?`)) return;
-
-    const result = await onToggleStatus(customerId, currentStatus);
+  const handleDelete = async () => {
+    if (!customerToDelete?._id) return;
+    const result = await onDeleteCustomer(customerToDelete._id);
     if (result.success) {
-      alert(`Customer ${action}d successfully!`);
+      toast({ title: 'Customer deleted', description: `${customerName(customerToDelete)} and their wallet were removed.` });
+      setCustomerToDelete(null);
     } else {
-      alert(`Error: ${result.error || `Failed to ${action} customer`}`);
+      toast({ title: 'Failed to delete customer', description: result.error, variant: 'destructive' });
     }
   };
 
+  const search = searchTerm.trim().toLowerCase();
+  const filteredCustomers = customers.filter((customer) => {
+    if (statusFilter !== 'all' && customer.status !== statusFilter) return false;
+    if (!search) return true;
+    return [
+      customerName(customer),
+      customer.email,
+      customer.customerId,
+      customer._id,
+      customer.phoneNumber,
+      customer.meansOfIdentification?.identificationNumber,
+    ].some((value) => value?.toLowerCase().includes(search));
+  });
+
+  const countsFor = (customer: Customer) => (customer._id && loanCounts.get(customer._id)) || { total: 0, active: 0 };
+
+  const handleToggleStatus = async (customer: Customer) => {
+    if (!customer._id) return;
+    const action = customer.status === 'active' ? 'deactivate' : 'activate';
+    if (!window.confirm(`Are you sure you want to ${action} ${customerName(customer)}?`)) return;
+
+    const result = await onToggleStatus(customer._id);
+    if (result.success) {
+      toast({ title: `Customer ${action}d`, description: `${customerName(customer)} is now ${result.status ?? `${action}d`}.` });
+    } else {
+      toast({ title: `Failed to ${action} customer`, description: result.error, variant: 'destructive' });
+    }
+  };
+
+  let totalLoans = 0;
+  let activeLoans = 0;
+  loanCounts.forEach(({ total, active }) => {
+    totalLoans += total;
+    activeLoans += active;
+  });
+
   const statCards = [
-    { label: 'Total', value: summaryStats.totalCustomers, sub: 'All customers', icon: UserIcon },
-    { label: 'Active', value: summaryStats.activeCustomers, sub: 'Currently active', icon: ShieldCheck },
-    { label: 'Total Loans', value: summaryStats.totalLoans, sub: 'All time', icon: Ban },
-    { label: 'Active Loans', value: summaryStats.activeLoans, sub: 'Currently active', icon: Plus },
+    { label: 'Total', value: customers.length, sub: 'All customers', icon: UserIcon },
+    { label: 'Active', value: customers.filter((c) => c.status === 'active').length, sub: 'Currently active', icon: ShieldCheck },
+    { label: 'Total Loans', value: totalLoans, sub: 'All time', icon: Ban },
+    { label: 'Active Loans', value: activeLoans, sub: 'Currently active', icon: Plus },
   ];
 
   return (
@@ -89,7 +118,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
             Manage customer accounts and information
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Logged in as: {user?.fullName} ({user?.role}) - {user?.department}
+            Logged in as: {user?.fullName} ({user?.roleName || user?.role}){user?.department ? ` - ${user.department}` : ''}
           </p>
         </div>
         {hasPermission('create_customers') && (
@@ -136,6 +165,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
             <SelectContent>
               <SelectItem value="all">All status</SelectItem>
               <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="inactive">Inactive</SelectItem>
             </SelectContent>
           </Select>
@@ -190,7 +220,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
                 <th className="hidden px-4 py-3 text-right text-xs font-medium text-muted-foreground md:table-cell">Total Loans</th>
                 <th className="hidden px-4 py-3 text-right text-xs font-medium text-muted-foreground md:table-cell">Active Loans</th>
-                <th className="hidden px-4 py-3 text-right text-xs font-medium text-muted-foreground md:table-cell">Credit Score</th>
+                <th className="hidden px-4 py-3 text-right text-xs font-medium text-muted-foreground md:table-cell">Customer ID</th>
                 <th className="w-10 px-2 py-3" />
               </tr>
             </thead>
@@ -207,7 +237,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                       </div>
                       <div className="min-w-0">
                         <div className="text-sm font-medium">
-                          {customer.firstName} {customer.lastName}
+                          {customerName(customer)}
                         </div>
                         <div className="truncate text-xs text-muted-foreground">
                           {customer.email} • {customer.phoneNumber}
@@ -224,17 +254,17 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                           : 'border-gray-200 bg-gray-50 text-gray-600'
                       }
                     >
-                      {customer.status || 'Active'}
+                      {customer.status || 'inactive'}
                     </Badge>
                   </td>
                   <td className="hidden px-4 py-3 text-right text-sm tabular-nums md:table-cell">
-                    {customer.totalLoans || 0}
+                    {countsFor(customer).total}
                   </td>
                   <td className="hidden px-4 py-3 text-right text-sm tabular-nums md:table-cell">
-                    {customer.activeLoans || 0}
+                    {countsFor(customer).active}
                   </td>
                   <td className="hidden px-4 py-3 text-right text-sm tabular-nums md:table-cell">
-                    {hasPermission('view_customers') ? customer.creditScore || 'N/A' : '•••'}
+                    {customer.customerId || '—'}
                   </td>
                   <td className="px-2 py-3">
                     <DropdownMenu>
@@ -257,13 +287,25 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                         {hasPermission('update_customers') && (
                           <>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => handleToggleStatus(customer._id, customer.status)}>
+                            <DropdownMenuItem onClick={() => handleToggleStatus(customer)}>
                               {customer.status === 'active' ? (
                                 <Ban className="mr-2 size-4 text-orange-500" />
                               ) : (
                                 <ShieldCheck className="mr-2 size-4 text-green-500" />
                               )}
                               {customer.status === 'active' ? 'Deactivate' : 'Activate'}
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                        {hasPermission('delete_customers') && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => setCustomerToDelete(customer)}
+                            >
+                              <Trash2 className="mr-2 size-4" />
+                              Delete
                             </DropdownMenuItem>
                           </>
                         )}
@@ -276,6 +318,24 @@ export const CustomerList: React.FC<CustomerListProps> = ({
           </table>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!customerToDelete}
+        onOpenChange={(open) => !open && setCustomerToDelete(null)}
+        title="Delete customer?"
+        description={
+          customerToDelete && (
+            <>
+              This permanently deletes <strong>{customerName(customerToDelete)}</strong> and their wallet. This cannot
+              be undone.
+            </>
+          )
+        }
+        confirmLabel="Delete customer"
+        destructive
+        isPending={isDeleting}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 };

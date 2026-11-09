@@ -17,7 +17,13 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useFeeManagement } from '@/hooks/useFeeManagement';
-import type { Fee, CreateFeeData, UpdateFeeData } from '../../types';
+import type { CreateFeeRequest, UpdateFeeRequest } from '@/api';
+import type { FeeRow } from '@/components/accounting/accounting-utils';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { toast } from '@/hooks/use-toast';
+
+/** Sentinel for "no GL account" in the select (Radix needs a non-empty value). */
+const NO_GL = '__none__';
 
 const FeeManagementPage = () => {
   const {
@@ -28,8 +34,11 @@ const FeeManagementPage = () => {
     fees,
     loading,
     error,
-    setError,
     fetchFees,
+    isSaving,
+    isDeleting,
+    activeGLAccounts,
+    getGLAccountName,
     canAccessFeeManagement,
     canCreateFee,
     canEditFee,
@@ -46,16 +55,17 @@ const FeeManagementPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [selectedFee, setSelectedFee] = useState<Fee | null>(null);
+  const [selectedFee, setSelectedFee] = useState<FeeRow | null>(null);
+  const [feeToDelete, setFeeToDelete] = useState<FeeRow | null>(null);
 
-  const [newFee, setNewFee] = useState<CreateFeeData>({
+  const [newFee, setNewFee] = useState<CreateFeeRequest>({
     name: '',
     type: 'flat',
     value: 0,
     glAccount: ''
   });
 
-  const [editFee, setEditFee] = useState<UpdateFeeData>({
+  const [editFee, setEditFee] = useState<UpdateFeeRequest>({
     name: '',
     type: 'flat',
     value: 0,
@@ -63,7 +73,7 @@ const FeeManagementPage = () => {
   });
 
   const showToast = (title: string, description: string, variant: 'default' | 'destructive' = 'default') => {
-    alert(`${variant === 'destructive' ? '❌' : '✅'} ${title}\n${description}`);
+    toast({ title, description, variant });
   };
 
   if (!authInitialized || authLoading) {
@@ -92,7 +102,7 @@ const FeeManagementPage = () => {
         <div className="text-center">
           <p className="mb-1 text-sm font-medium text-destructive">Error</p>
           <p className="mb-4 text-sm text-muted-foreground">{error}</p>
-          <Button variant="outline" size="sm" onClick={() => { setError(null); fetchFees(); }}>
+          <Button variant="outline" size="sm" onClick={() => fetchFees()}>
             Retry
           </Button>
         </div>
@@ -104,10 +114,7 @@ const FeeManagementPage = () => {
   const summaryStats = getSummaryStats();
 
   const handleCreateFee = async () => {
-    const result = await createFee({
-      ...newFee,
-      createdBy: user?._id
-    });
+    const result = await createFee(newFee);
 
     if (result.success) {
       setNewFee({ name: '', type: 'flat', value: 0, glAccount: '' });
@@ -121,10 +128,7 @@ const FeeManagementPage = () => {
   const handleEditFee = async () => {
     if (!selectedFee) return;
 
-    const result = await updateFee(selectedFee._id, {
-      ...editFee,
-      updatedBy: user?._id
-    });
+    const result = await updateFee(selectedFee._id, editFee);
 
     if (result.success) {
       setSelectedFee(null);
@@ -137,9 +141,9 @@ const FeeManagementPage = () => {
 
   const handleToggleStatus = async (feeId: string, currentStatus: boolean) => {
     const action = currentStatus ? 'deactivate' : 'activate';
-    if (!window.confirm(`Are you sure you want to ${action} this fee?`)) return;
+    if (!window.confirm(`Are you sure you want to ${action} this fee?${currentStatus ? ' Inactive fees are not charged on new bookings.' : ''}`)) return;
 
-    const result = await toggleFeeStatus(feeId, currentStatus);
+    const result = await toggleFeeStatus(feeId);
     if (result.success) {
       showToast("Success", `Fee ${action}d successfully`);
     } else {
@@ -147,18 +151,18 @@ const FeeManagementPage = () => {
     }
   };
 
-  const handleDeleteFee = async (feeId: string, feeName: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${feeName}"? This action cannot be undone.`)) return;
-
-    const result = await deleteFee(feeId);
+  const handleDeleteFee = async () => {
+    if (!feeToDelete) return;
+    const result = await deleteFee(feeToDelete._id);
     if (result.success) {
+      setFeeToDelete(null);
       showToast("Success", "Fee deleted successfully");
     } else {
       showToast("Error", result.error || "Failed to delete fee", "destructive");
     }
   };
 
-  const openEditDialog = (fee: Fee) => {
+  const openEditDialog = (fee: FeeRow) => {
     setSelectedFee(fee);
     setEditFee({
       name: fee.name,
@@ -186,7 +190,7 @@ const FeeManagementPage = () => {
             Create and manage application fees and charges
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Logged in as: {user?.fullName} ({user?.role}) - {user?.department}
+            Logged in as: {user?.fullName} ({user?.roleName || user?.role}){user?.department ? ` - ${user.department}` : ''}
           </p>
         </div>
         {canCreateFee() && (
@@ -279,7 +283,11 @@ const FeeManagementPage = () => {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <code className="rounded bg-muted px-2 py-0.5 text-xs">{fee.glAccount}</code>
+                    {fee.glAccount ? (
+                      <code className="rounded bg-muted px-2 py-0.5 text-xs">{getGLAccountName(fee.glAccount)}</code>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Product fee-income GL</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge
@@ -327,7 +335,7 @@ const FeeManagementPage = () => {
                           <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
-                              onClick={() => handleDeleteFee(fee._id, fee.name)}
+                              onClick={() => setFeeToDelete(fee)}
                               className="text-destructive focus:text-destructive"
                             >
                               <Trash2 className="mr-2 size-4" />
@@ -385,17 +393,27 @@ const FeeManagementPage = () => {
               />
             </div>
             <div>
-              <Label htmlFor="glAccount">GL Account *</Label>
-              <Input
-                id="glAccount"
-                value={newFee.glAccount}
-                onChange={(e) => setNewFee({...newFee, glAccount: e.target.value})}
-                placeholder="Enter GL account code"
-              />
+              <Label htmlFor="glAccount">Fee Income GL Account</Label>
+              <Select
+                value={newFee.glAccount || NO_GL}
+                onValueChange={(value) => setNewFee({...newFee, glAccount: value === NO_GL ? '' : value})}
+              >
+                <SelectTrigger id="glAccount">
+                  <SelectValue placeholder="Select GL account" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_GL}>Use the loan product's fee-income GL</SelectItem>
+                  {activeGLAccounts.map((account) => (
+                    <SelectItem key={account._id} value={account._id}>
+                      {account.glCode} - {account.glName} ({account.level1Category})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleCreateFee}>Create Fee</Button>
+              <Button onClick={handleCreateFee} disabled={isSaving}>{isSaving ? 'Creating...' : 'Create Fee'}</Button>
             </DialogFooter>
           </div>
         </DialogContent>
@@ -440,21 +458,43 @@ const FeeManagementPage = () => {
                 />
               </div>
               <div>
-                <Label htmlFor="editGlAccount">GL Account *</Label>
-                <Input
-                  id="editGlAccount"
-                  value={editFee.glAccount || ''}
-                  onChange={(e) => setEditFee({...editFee, glAccount: e.target.value})}
-                />
+                <Label htmlFor="editGlAccount">Fee Income GL Account</Label>
+                <Select
+                value={editFee.glAccount || NO_GL}
+                onValueChange={(value) => setEditFee({...editFee, glAccount: value === NO_GL ? '' : value})}
+              >
+                <SelectTrigger id="editGlAccount">
+                  <SelectValue placeholder="Select GL account" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_GL}>Use the loan product's fee-income GL</SelectItem>
+                  {activeGLAccounts.map((account) => (
+                    <SelectItem key={account._id} value={account._id}>
+                      {account.glCode} - {account.glName} ({account.level1Category})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancel</Button>
-                <Button onClick={handleEditFee}>Update Fee</Button>
+                <Button onClick={handleEditFee} disabled={isSaving}>{isSaving ? 'Updating...' : 'Update Fee'}</Button>
               </DialogFooter>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!feeToDelete}
+        onOpenChange={(open) => !open && setFeeToDelete(null)}
+        title="Delete fee?"
+        description={feeToDelete && <>"{feeToDelete.name}" will be permanently deleted. Loans already booked keep their fees.</>}
+        confirmLabel="Delete fee"
+        destructive
+        isPending={isDeleting}
+        onConfirm={handleDeleteFee}
+      />
     </div>
   );
 };

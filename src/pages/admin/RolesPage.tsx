@@ -3,73 +3,89 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
-  Search, Plus, Shield, MoreHorizontal, User as UserIcon,
-  Save, Loader2, AlertCircle, Edit, Trash2, UserCheck,
+  Search, Plus, Shield, MoreHorizontal,
+  Save, Loader2, AlertCircle, Edit, Trash2, UserCheck, KeyRound, RefreshCw,
 } from 'lucide-react';
+
+const PERMISSION_ACTIONS: PermissionAction[] = [
+  'view', 'read', 'create', 'update', 'edit', 'delete', 'approve', 'reject', 'freeze', 'verify', 'blacklist',
+];
+const emptyPermission = { name: '', description: '', resource: '', action: 'view' as PermissionAction };
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import NoAccessPage from '@/components/NoAccessPage';
-import { useRoleManagement } from '@/hooks/useRoleManagement';
-import type { Role } from '../../types';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import {
+  getErrorMessage,
+  useAssignRole,
+  useCreatePermission,
+  useCreateRole,
+  useDeleteRole,
+  usePermissions,
+  useRoles,
+  useSyncAdminPermissions,
+  useUnassignRole,
+  useUpdateRole,
+  useUsers,
+  type Permission,
+  type PermissionAction,
+  type Role,
+  type UserWithRoles,
+} from '@/api';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from '@/hooks/use-toast';
+
+const userName = (u: UserWithRoles) => u.fullName || `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.email || 'Unknown User';
+
+/** Editable copy of a role in the dialogs. */
+interface RoleDraft {
+  name: string;
+  description: string;
+  permissionIds: string[];
+}
+
+const emptyDraft: RoleDraft = { name: '', description: '', permissionIds: [] };
 
 const RolesPage = () => {
-  const {
-    toast,
-    roles,
-    permissions,
-    userRoles,
-    isLoading,
-    user,
-    isAuthenticated,
-    authInitialized,
-    authLoading,
-    allUsers,
-    isLoadingUsers,
-    pageError,
-    setPageError,
-    operationLoading,
-    canAccessRoleManagement,
-    canCreateRole,
-    canEditRole,
-    canDeleteRole,
-    canAssignRole,
-    canRemoveRole,
-    getUserRolesByUserId,
-    fetchUsers,
-    handleCreateRole,
-    handleUpdateRole,
-    handleDeleteRole,
-    handleAssignRole,
-    handleRemoveRole,
-    getUserById,
-    getRoleById,
-  } = useRoleManagement();
+  const { user, isAuthenticated, authInitialized, isLoading: authLoading, hasPermission, isAdmin } = useAuth();
+  const canAccess = isAdmin || hasPermission('view_roles') || hasPermission('manage_roles');
+  const canCreateRole = isAdmin || hasPermission('create_roles');
+  const canEditRole = isAdmin || hasPermission('update_roles');
+  const canDeleteRole = isAdmin || hasPermission('delete_roles');
+  const canAssignRole = isAdmin || hasPermission('assign_roles');
+
+  const enabled = isAuthenticated && canAccess;
+  const rolesQuery = useRoles({ enabled });
+  const permissionsQuery = usePermissions({ enabled });
+  const usersQuery = useUsers({ enabled });
+
+  const createRole = useCreateRole();
+  const updateRole = useUpdateRole();
+  const deleteRole = useDeleteRole();
+  const assignRole = useAssignRole();
+  const unassignRole = useUnassignRole();
+  const createPermission = useCreatePermission();
+  const syncAdmin = useSyncAdminPermissions();
+  const [isPermissionDialogOpen, setIsPermissionDialogOpen] = useState(false);
+  const [newPermission, setNewPermission] = useState(emptyPermission);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
-  const [selectedPermissionIds, setSelectedPermissionIds] = useState<string[]>([]);
-
-  const [newRole, setNewRole] = useState({
-    name: '',
-    description: '',
-    permissions: [] as string[]
-  });
-
-  const [roleAssignment, setRoleAssignment] = useState({
-    userId: '',
-    roleId: ''
-  });
+  const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
+  const [roleToDelete, setRoleToDelete] = useState<Role | null>(null);
+  const [newRole, setNewRole] = useState<RoleDraft>(emptyDraft);
+  const [editRole, setEditRole] = useState<RoleDraft>(emptyDraft);
+  const [roleAssignment, setRoleAssignment] = useState({ userId: '', roleId: '' });
 
   if (!authInitialized || authLoading) {
     return (
@@ -91,11 +107,15 @@ const RolesPage = () => {
     );
   }
 
-  if (!canAccessRoleManagement()) {
+  if (!canAccess) {
     return <NoAccessPage message="You don't have permission to manage roles." title="Access Denied - Role Management" />;
   }
 
-  if (isLoading && roles.length === 0 && permissions.length === 0) {
+  const roles = rolesQuery.data ?? [];
+  const permissions = (permissionsQuery.data ?? []).filter((p): p is Permission & { _id: string } => !!p._id);
+  const users = usersQuery.data ?? [];
+
+  if (rolesQuery.isLoading || permissionsQuery.isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -103,14 +123,15 @@ const RolesPage = () => {
     );
   }
 
-  if (pageError) {
+  const loadError = rolesQuery.error || permissionsQuery.error;
+  if (loadError) {
     return (
       <div className="flex h-64 items-center justify-center">
         <div className="text-center">
           <AlertCircle className="mx-auto mb-4 size-10 text-destructive" />
           <p className="mb-1 text-sm font-medium text-destructive">Error Loading Data</p>
-          <p className="mb-4 text-sm text-muted-foreground">{pageError}</p>
-          <Button size="sm" variant="outline" onClick={() => { setPageError(null); fetchUsers(); }}>
+          <p className="mb-4 text-sm text-muted-foreground">{getErrorMessage(loadError)}</p>
+          <Button size="sm" variant="outline" onClick={() => { rolesQuery.refetch(); permissionsQuery.refetch(); }}>
             Retry
           </Button>
         </div>
@@ -118,106 +139,149 @@ const RolesPage = () => {
     );
   }
 
-  const filteredRoles = roles.filter(role =>
-    role.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    role.description?.toLowerCase().includes(searchTerm.toLowerCase())
+  const search = searchTerm.toLowerCase();
+  const filteredRoles = roles.filter(
+    (role) => role.name?.toLowerCase().includes(search) || role.description?.toLowerCase().includes(search),
   );
 
-  const userRolesArray = Array.isArray(userRoles) ? userRoles : [];
-  const uniqueUserIds = [...new Set(userRolesArray
-    .filter(ur => ur && ur.userId)
-    .map(ur => typeof ur.userId === 'string' ? ur.userId : ur.userId._id)
-  )];
+  // A user has at most one role; `GET /users/all` includes it.
+  const assignedUsers = users.filter((u) => u.roles?.length);
+  const usersWithRole = (roleId?: string) => assignedUsers.filter((u) => u.roles?.some((r) => r.roleId === roleId));
 
-  const handlePermissionToggle = (permissionId: string, isEditing = false) => {
-    if (isEditing && selectedRole) {
-      setSelectedPermissionIds(prev => 
-        prev.includes(permissionId) 
-          ? prev.filter(id => id !== permissionId) 
-          : [...prev, permissionId]
-      );
-    } else {
-      setNewRole(prev => ({
-        ...prev,
-        permissions: prev.permissions.includes(permissionId)
-          ? prev.permissions.filter(id => id !== permissionId)
-          : [...prev.permissions, permissionId]
-      }));
-    }
-  };
+  const toggle = (ids: string[], id: string) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+
+  const fail = (title: string, err: unknown) => toast({ title, description: getErrorMessage(err), variant: 'destructive' });
 
   const openEditDialog = (role: Role) => {
-    setSelectedRole(role);
-    setSelectedPermissionIds(role.permissions.map(p => p._id));
+    setEditingRoleId(role._id ?? null);
+    setEditRole({
+      name: role.name ?? '',
+      description: role.description ?? '',
+      permissionIds: (role.permissions ?? []).map((p) => p._id).filter((id): id is string => !!id),
+    });
     setIsEditDialogOpen(true);
   };
 
   const onCreateRole = async () => {
-    const result = await handleCreateRole({
-      name: newRole.name,
-      description: newRole.description,
-      permissionIds: newRole.permissions
-    });
-
-    if (result.success) {
-      toast({ title: "Success", description: "Role created successfully" });
-      setNewRole({ name: '', description: '', permissions: [] });
+    try {
+      await createRole.mutateAsync({
+        name: newRole.name.trim(),
+        description: newRole.description,
+        permissions: newRole.permissionIds,
+      });
+      toast({ title: 'Success', description: 'Role created successfully' });
+      setNewRole(emptyDraft);
       setIsCreateDialogOpen(false);
-    } else {
-      toast({ title: "Error Creating Role", description: result.error, variant: "destructive" });
+    } catch (err) {
+      fail('Error Creating Role', err);
     }
   };
 
   const onUpdateRole = async () => {
-    if (!selectedRole) return;
-
-    const result = await handleUpdateRole(selectedRole._id, {
-      name: selectedRole.name,
-      description: selectedRole.description || '',
-      permissionIds: selectedPermissionIds
-    });
-
-    if (result.success) {
-      toast({ title: "Success", description: "Role updated successfully" });
+    if (!editingRoleId) return;
+    try {
+      await updateRole.mutateAsync({
+        id: editingRoleId,
+        data: { name: editRole.name.trim(), description: editRole.description, permissions: editRole.permissionIds },
+      });
+      toast({ title: 'Success', description: 'Role updated successfully' });
       setIsEditDialogOpen(false);
-      setSelectedRole(null);
-    } else {
-      toast({ title: "Error Updating Role", description: result.error, variant: "destructive" });
+      setEditingRoleId(null);
+    } catch (err) {
+      fail('Error Updating Role', err);
     }
   };
 
-  const onDeleteRole = async (roleId: string, roleName: string) => {
-    if (window.confirm('Are you sure you want to delete this role? This action cannot be undone.')) {
-      const result = await handleDeleteRole(roleId, roleName);
-      if (result.success) {
-        toast({ title: "Success", description: "Role deleted successfully" });
-      } else {
-        toast({ title: "Error Deleting Role", description: result.error, variant: "destructive" });
-      }
+  const onDeleteRole = async () => {
+    if (!roleToDelete?._id) return;
+    try {
+      await deleteRole.mutateAsync(roleToDelete._id);
+      toast({ title: 'Success', description: `Role "${roleToDelete.name}" deleted` });
+      setRoleToDelete(null);
+    } catch (err) {
+      fail('Error Deleting Role', err);
     }
   };
 
   const onAssignRole = async () => {
-    const result = await handleAssignRole(roleAssignment.userId, roleAssignment.roleId);
-    if (result.success) {
-      toast({ title: "Success", description: "Role assigned successfully" });
+    try {
+      await assignRole.mutateAsync(roleAssignment);
+      toast({ title: 'Success', description: 'Role assigned successfully' });
       setRoleAssignment({ userId: '', roleId: '' });
       setIsAssignDialogOpen(false);
-    } else {
-      toast({ title: "Error Assigning Role", description: result.error, variant: "destructive" });
+    } catch (err) {
+      fail('Error Assigning Role', err);
     }
   };
 
-  const onRemoveRole = async (userId: string, roleId: string) => {
-    if (window.confirm('Are you sure you want to remove this role assignment?')) {
-      const result = await handleRemoveRole(userId, roleId);
-      if (result.success) {
-        toast({ title: "Success", description: "Role assignment removed successfully" });
-      } else {
-        toast({ title: "Error Removing Role", description: result.error, variant: "destructive" });
-      }
+  /** Admin only. The new permission is also added to the Admin role. */
+  const onCreatePermission = async () => {
+    const name = newPermission.name.trim();
+    const resource = newPermission.resource.trim();
+    if (!name || !resource) {
+      toast({ title: 'Missing fields', description: 'Name and resource are required.', variant: 'destructive' });
+      return;
+    }
+    try {
+      await createPermission.mutateAsync({ ...newPermission, name, resource, description: newPermission.description || undefined });
+      toast({ title: 'Permission created', description: `"${name}" was added and granted to the Admin role.` });
+      setNewPermission(emptyPermission);
+      setIsPermissionDialogOpen(false);
+    } catch (err) {
+      fail('Error Creating Permission', err);
     }
   };
+
+  /** Admin only. Gives the Admin role any permission it is missing. */
+  const onSyncAdmin = async () => {
+    try {
+      const result = await syncAdmin.mutateAsync();
+      const added = result.addedPermissions?.length ?? 0;
+      toast({
+        title: 'Admin role synced',
+        description: added
+          ? `Added ${added} permission(s): ${result.addedPermissions!.join(', ')}. Total: ${result.totalPermissions ?? '—'}.`
+          : `The Admin role already has every permission (${result.totalPermissions ?? permissions.length}).`,
+      });
+    } catch (err) {
+      fail('Error Syncing Admin Role', err);
+    }
+  };
+
+  const onRemoveRole = async (u: UserWithRoles, roleId?: string, roleName?: string) => {
+    if (!u._id || !roleId) return;
+    if (!window.confirm(`Remove the ${roleName || 'role'} role from ${userName(u)}?`)) return;
+    try {
+      await unassignRole.mutateAsync({ userId: u._id, roleId });
+      toast({ title: 'Success', description: 'Role assignment removed successfully' });
+    } catch (err) {
+      fail('Error Removing Role', err);
+    }
+  };
+
+  const permissionChecklist = (draft: RoleDraft, setDraft: (d: RoleDraft) => void, idPrefix: string) => (
+    <div className="mt-2 grid max-h-64 grid-cols-1 gap-4 overflow-y-auto rounded-md border p-2 md:grid-cols-2">
+      {permissions.length === 0 ? (
+        <p className="col-span-2 text-sm text-muted-foreground">No permissions available</p>
+      ) : (
+        permissions.map((permission) => (
+          <div key={permission._id} className="flex items-start space-x-2">
+            <Checkbox
+              id={`${idPrefix}-${permission._id}`}
+              checked={draft.permissionIds.includes(permission._id)}
+              onCheckedChange={() => setDraft({ ...draft, permissionIds: toggle(draft.permissionIds, permission._id) })}
+            />
+            <Label htmlFor={`${idPrefix}-${permission._id}`} className="flex-1 cursor-pointer text-sm">
+              <div>
+                <div className="font-medium">{permission.name}</div>
+                {permission.description && <div className="text-xs text-muted-foreground">{permission.description}</div>}
+              </div>
+            </Label>
+          </div>
+        ))
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -229,17 +293,29 @@ const RolesPage = () => {
             Create and manage user roles and permissions
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Logged in as: {user?.fullName} ({user?.role}) - {user?.department}
+            Logged in as: {user?.fullName} ({user?.roleName || user?.role}){user?.department ? ` - ${user.department}` : ''}
           </p>
         </div>
-        <div className="flex gap-2">
-          {canAssignRole() && (
+        <div className="flex flex-wrap gap-2">
+          {isAdmin && (
+            <>
+              <Button variant="outline" size="sm" onClick={onSyncAdmin} disabled={syncAdmin.isPending}>
+                <RefreshCw className={`mr-2 size-4 ${syncAdmin.isPending ? 'animate-spin' : ''}`} />
+                Sync Admin Role
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setIsPermissionDialogOpen(true)}>
+                <KeyRound className="mr-2 size-4" />
+                New Permission
+              </Button>
+            </>
+          )}
+          {canAssignRole && (
             <Button variant="outline" size="sm" onClick={() => setIsAssignDialogOpen(true)}>
               <UserCheck className="mr-2 size-4" />
               Assign Role
             </Button>
           )}
-          {canCreateRole() && (
+          {canCreateRole && (
             <Button size="sm" onClick={() => setIsCreateDialogOpen(true)}>
               <Plus className="mr-2 size-4" />
               Create Role
@@ -277,87 +353,86 @@ const RolesPage = () => {
         </div>
       ) : (
         <div className="space-y-3">
-          {filteredRoles.map((role) => (
-            <Card key={role._id} className="group border-muted-foreground/10 shadow-none transition-colors hover:bg-accent/30">
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-purple-50">
-                      <Shield className="size-4 text-purple-600" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-medium">{role.name}</h3>
-                        <Badge variant="outline" className="font-normal">
-                          {role.permissions.length} permissions
-                        </Badge>
+          {filteredRoles.map((role) => {
+            const members = usersWithRole(role._id);
+            const isAdminRole = role.name?.toLowerCase() === 'admin';
+            return (
+              <Card key={role._id} className="group border-muted-foreground/10 shadow-none transition-colors hover:bg-accent/30">
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-purple-50">
+                        <Shield className="size-4 text-purple-600" />
                       </div>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {role.description || 'No description provided'}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        Created {role.createdAt ? new Date(role.createdAt).toLocaleDateString() : 'Unknown date'}
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {userRolesArray
-                          .filter(ur => ur.roleId === role._id)
-                          .map(ur => {
-                            const assignedUser = getUserById(ur.userId);
-                            return assignedUser ? (
-                              <Badge key={`${ur.userId}-${ur.roleId}`} variant="outline" className="text-xs font-normal">
-                                {assignedUser.fullName}
-                              </Badge>
-                            ) : null;
-                          })}
-                        {userRolesArray.filter(ur => ur.roleId === role._id).length === 0 && (
-                          <span className="text-xs text-muted-foreground">No users assigned</span>
-                        )}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-medium">{role.name}</h3>
+                          <Badge variant="outline" className="font-normal">
+                            {role.permissions?.length ?? 0} permissions
+                          </Badge>
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {role.description || 'No description provided'}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Created {role.createdAt ? new Date(role.createdAt).toLocaleDateString() : 'Unknown date'}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {members.map((m) => (
+                            <Badge key={m._id} variant="outline" className="text-xs font-normal">
+                              {userName(m)}
+                            </Badge>
+                          ))}
+                          {members.length === 0 && <span className="text-xs text-muted-foreground">No users assigned</span>}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="size-7 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
-                      >
-                        <MoreHorizontal className="size-4" />
-                        <span className="sr-only">Open menu</span>
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                      {canEditRole() && (
-                        <DropdownMenuItem onClick={() => openEditDialog(role)}>
-                          <Edit className="mr-2 size-4" />
-                          Edit
-                        </DropdownMenuItem>
-                      )}
-                      {canDeleteRole() && role.name.toLowerCase() !== 'admin' && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => onDeleteRole(role._id, role.name)}
-                            className="text-destructive focus:text-destructive"
+                    {(canEditRole || (canDeleteRole && !isAdminRole)) && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-7 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
                           >
-                            <Trash2 className="mr-2 size-4" />
-                            Delete
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                            <MoreHorizontal className="size-4" />
+                            <span className="sr-only">Open menu</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          {canEditRole && (
+                            <DropdownMenuItem onClick={() => openEditDialog(role)}>
+                              <Edit className="mr-2 size-4" />
+                              Edit
+                            </DropdownMenuItem>
+                          )}
+                          {canDeleteRole && !isAdminRole && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => setRoleToDelete(role)}
+                                className="text-destructive focus:text-destructive"
+                              >
+                                <Trash2 className="mr-2 size-4" />
+                                Delete
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 
       {/* User Role Assignments */}
-      {uniqueUserIds.length > 0 && (
+      {assignedUsers.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-sm font-semibold tracking-tight">User Role Assignments</h2>
           <div className="overflow-hidden rounded-lg border">
@@ -372,62 +447,49 @@ const RolesPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {uniqueUserIds.map(userId => {
-                  const userData = getUserById(userId);
-                  const userAssignedRoles = getUserRolesByUserId(userId);
-                  
-                  return (
-                    <TableRow key={userId} className="group">
-                      <TableCell className="text-sm font-medium">{userData?.fullName || 'Unknown User'}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{userData?.email || 'N/A'}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{userData?.staffId || 'N/A'}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {userAssignedRoles.map(ur => {
-                            const roleData = getRoleById(ur.roleId);
-                            return roleData ? (
-                              <Badge key={ur._id} variant="outline" className="text-xs font-normal">{roleData.name}</Badge>
-                            ) : null;
-                          })}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {canRemoveRole() && userAssignedRoles.length > 0 && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="size-7 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
+                {assignedUsers.map((u) => (
+                  <TableRow key={u._id} className="group">
+                    <TableCell className="text-sm font-medium">{userName(u)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{u.email || 'N/A'}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{u.staffId || 'N/A'}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {u.roles?.map((r) => (
+                          <Badge key={r.roleId} variant="outline" className="text-xs font-normal">{r.roleName}</Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {canAssignRole && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-7 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
+                            >
+                              <MoreHorizontal className="size-4" />
+                              <span className="sr-only">Open menu</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Remove Role</DropdownMenuLabel>
+                            {u.roles?.map((r) => (
+                              <DropdownMenuItem
+                                key={r.roleId}
+                                onClick={() => onRemoveRole(u, r.roleId, r.roleName)}
+                                className="text-destructive focus:text-destructive"
                               >
-                                <MoreHorizontal className="size-4" />
-                                <span className="sr-only">Open menu</span>
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuLabel>Remove Role</DropdownMenuLabel>
-                              {userAssignedRoles.map(ur => {
-                                const normalizedUserId = typeof ur.userId === 'string' ? ur.userId : ur.userId._id;
-                                const normalizedRoleId = typeof ur.roleId === 'string' ? ur.roleId : ur.roleId._id;
-                                const roleData = getRoleById(ur.roleId);
-                                return (
-                                  <DropdownMenuItem
-                                    key={ur._id}
-                                    onClick={() => onRemoveRole(normalizedUserId, normalizedRoleId)}
-                                    className="text-destructive focus:text-destructive"
-                                  >
-                                    <Trash2 className="mr-2 size-4" />
-                                    Remove {roleData?.name || 'Role'}
-                                  </DropdownMenuItem>
-                                );
-                              })}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                                <Trash2 className="mr-2 size-4" />
+                                Remove {r.roleName || 'Role'}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           </div>
@@ -446,13 +508,13 @@ const RolesPage = () => {
               <select
                 className="w-full rounded-md border border-input bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={roleAssignment.userId}
-                onChange={(e) => setRoleAssignment(prev => ({ ...prev, userId: e.target.value }))}
-                disabled={isLoadingUsers}
+                onChange={(e) => setRoleAssignment((prev) => ({ ...prev, userId: e.target.value }))}
+                disabled={usersQuery.isLoading}
               >
-                <option value="">Select a user</option>
-                {allUsers.map(user => (
-                  <option key={user._id} value={user._id}>
-                    {user.fullName} ({user.email})
+                <option value="">{usersQuery.isLoading ? 'Loading users...' : 'Select a user'}</option>
+                {users.map((u) => (
+                  <option key={u._id} value={u._id}>
+                    {userName(u)} ({u.email}){u.roles?.[0]?.roleName ? ` — currently ${u.roles[0].roleName}` : ''}
                   </option>
                 ))}
               </select>
@@ -462,21 +524,84 @@ const RolesPage = () => {
               <select
                 className="w-full rounded-md border border-input bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={roleAssignment.roleId}
-                onChange={(e) => setRoleAssignment(prev => ({ ...prev, roleId: e.target.value }))}
+                onChange={(e) => setRoleAssignment((prev) => ({ ...prev, roleId: e.target.value }))}
                 disabled={roles.length === 0}
               >
                 <option value="">Select a role</option>
-                {roles.map(role => (
+                {roles.map((role) => (
                   <option key={role._id} value={role._id}>{role.name}</option>
                 ))}
               </select>
+              <p className="mt-1 text-xs text-muted-foreground">A user has one role; assigning replaces any current role.</p>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAssignDialogOpen(false)}>Cancel</Button>
-            <Button onClick={onAssignRole} disabled={operationLoading === 'assign' || !roleAssignment.userId || !roleAssignment.roleId}>
-              {operationLoading === 'assign' ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+            <Button onClick={onAssignRole} disabled={assignRole.isPending || !roleAssignment.userId || !roleAssignment.roleId}>
+              {assignRole.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
               Assign Role
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Permission Dialog (Admin only) */}
+      <Dialog open={isPermissionDialogOpen} onOpenChange={setIsPermissionDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Permission</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="permName">Name *</Label>
+              <Input
+                id="permName"
+                value={newPermission.name}
+                onChange={(e) => setNewPermission({ ...newPermission, name: e.target.value })}
+                placeholder="e.g., view_reports"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">Use the action_resource style, e.g. approve_loans.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="permResource">Resource *</Label>
+                <Input
+                  id="permResource"
+                  value={newPermission.resource}
+                  onChange={(e) => setNewPermission({ ...newPermission, resource: e.target.value })}
+                  placeholder="e.g., reports"
+                />
+              </div>
+              <div>
+                <Label htmlFor="permAction">Action *</Label>
+                <select
+                  id="permAction"
+                  className="w-full rounded-md border border-input bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={newPermission.action}
+                  onChange={(e) => setNewPermission({ ...newPermission, action: e.target.value as PermissionAction })}
+                >
+                  {PERMISSION_ACTIONS.map((a) => (
+                    <option key={a} value={a}>{a}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="permDescription">Description</Label>
+              <Textarea
+                id="permDescription"
+                rows={2}
+                value={newPermission.description}
+                onChange={(e) => setNewPermission({ ...newPermission, description: e.target.value })}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">The new permission is granted to the Admin role automatically.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsPermissionDialogOpen(false)}>Cancel</Button>
+            <Button onClick={onCreatePermission} disabled={createPermission.isPending}>
+              {createPermission.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+              Create Permission
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -494,7 +619,7 @@ const RolesPage = () => {
               <Input
                 id="roleName"
                 value={newRole.name}
-                onChange={(e) => setNewRole({...newRole, name: e.target.value})}
+                onChange={(e) => setNewRole({ ...newRole, name: e.target.value })}
                 placeholder="Enter role name"
               />
             </div>
@@ -503,41 +628,19 @@ const RolesPage = () => {
               <Textarea
                 id="roleDescription"
                 value={newRole.description}
-                onChange={(e) => setNewRole({...newRole, description: e.target.value})}
+                onChange={(e) => setNewRole({ ...newRole, description: e.target.value })}
                 placeholder="Enter role description"
                 rows={3}
               />
             </div>
             <div>
-              <Label>Permissions ({newRole.permissions.length} selected)</Label>
-              <div className="mt-2 grid max-h-64 grid-cols-1 gap-4 overflow-y-auto rounded-md border p-2 md:grid-cols-2">
-                {permissions.length === 0 ? (
-                  <p className="col-span-2 text-sm text-muted-foreground">No permissions available</p>
-                ) : (
-                  permissions.map(permission => (
-                    <div key={permission._id} className="flex items-start space-x-2">
-                      <Checkbox
-                        id={`perm-${permission._id}`}
-                        checked={newRole.permissions.includes(permission._id)}
-                        onCheckedChange={() => handlePermissionToggle(permission._id)}
-                      />
-                      <Label htmlFor={`perm-${permission._id}`} className="flex-1 cursor-pointer text-sm">
-                        <div>
-                          <div className="font-medium">{permission.name}</div>
-                          {permission.description && (
-                            <div className="text-xs text-muted-foreground">{permission.description}</div>
-                          )}
-                        </div>
-                      </Label>
-                    </div>
-                  ))
-                )}
-              </div>
+              <Label>Permissions ({newRole.permissionIds.length} selected)</Label>
+              {permissionChecklist(newRole, setNewRole, 'perm')}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>Cancel</Button>
-              <Button onClick={onCreateRole} disabled={!newRole.name.trim() || operationLoading === 'create'}>
-                {operationLoading === 'create' ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+              <Button onClick={onCreateRole} disabled={!newRole.name.trim() || createRole.isPending}>
+                {createRole.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
                 Create Role
               </Button>
             </DialogFooter>
@@ -551,51 +654,33 @@ const RolesPage = () => {
           <DialogHeader>
             <DialogTitle>Edit Role</DialogTitle>
           </DialogHeader>
-          {selectedRole && (
+          {editingRoleId && (
             <div className="space-y-4">
               <div>
                 <Label htmlFor="editRoleName">Role Name *</Label>
                 <Input
                   id="editRoleName"
-                  value={selectedRole.name}
-                  onChange={(e) => setSelectedRole({...selectedRole, name: e.target.value})}
+                  value={editRole.name}
+                  onChange={(e) => setEditRole({ ...editRole, name: e.target.value })}
                 />
               </div>
               <div>
                 <Label htmlFor="editRoleDescription">Description</Label>
                 <Textarea
                   id="editRoleDescription"
-                  value={selectedRole.description || ''}
-                  onChange={(e) => setSelectedRole({...selectedRole, description: e.target.value})}
+                  value={editRole.description}
+                  onChange={(e) => setEditRole({ ...editRole, description: e.target.value })}
                   rows={3}
                 />
               </div>
               <div>
-                <Label>Permissions ({selectedPermissionIds.length} selected)</Label>
-                <div className="mt-2 grid max-h-64 grid-cols-1 gap-4 overflow-y-auto rounded-md border p-2 md:grid-cols-2">
-                  {permissions.map(permission => (
-                    <div key={permission._id} className="flex items-start space-x-2">
-                      <Checkbox
-                        id={`edit-perm-${permission._id}`}
-                        checked={selectedPermissionIds.includes(permission._id)}
-                        onCheckedChange={() => handlePermissionToggle(permission._id, true)}
-                      />
-                      <Label htmlFor={`edit-perm-${permission._id}`} className="flex-1 cursor-pointer text-sm">
-                        <div>
-                          <div className="font-medium">{permission.name}</div>
-                          {permission.description && (
-                            <div className="text-xs text-muted-foreground">{permission.description}</div>
-                          )}
-                        </div>
-                      </Label>
-                    </div>
-                  ))}
-                </div>
+                <Label>Permissions ({editRole.permissionIds.length} selected)</Label>
+                {permissionChecklist(editRole, setEditRole, 'edit-perm')}
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancel</Button>
-                <Button onClick={onUpdateRole} disabled={!selectedRole.name.trim() || operationLoading === 'update'}>
-                  {operationLoading === 'update' ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}
+                <Button onClick={onUpdateRole} disabled={!editRole.name.trim() || updateRole.isPending}>
+                  {updateRole.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}
                   Update Role
                 </Button>
               </DialogFooter>
@@ -603,6 +688,27 @@ const RolesPage = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!roleToDelete}
+        onOpenChange={(open) => !open && setRoleToDelete(null)}
+        title="Delete role?"
+        description={
+          roleToDelete && (
+            <>
+              <strong>{roleToDelete.name}</strong> will be deleted
+              {usersWithRole(roleToDelete._id).length > 0
+                ? `, and ${usersWithRole(roleToDelete._id).length} user(s) currently assigned to it will lose its permissions`
+                : ''}
+              . This cannot be undone.
+            </>
+          )
+        }
+        confirmLabel="Delete role"
+        destructive
+        isPending={deleteRole.isPending}
+        onConfirm={onDeleteRole}
+      />
     </div>
   );
 };

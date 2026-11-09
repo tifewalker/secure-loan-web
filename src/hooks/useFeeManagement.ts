@@ -1,117 +1,87 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useMemo } from 'react';
+import {
+  getErrorMessage,
+  useCreateFee,
+  useDeleteFee,
+  useFees,
+  useGLAccounts,
+  useToggleFeeActivation,
+  useUpdateFee,
+  type CreateFeeRequest,
+  type UpdateFeeRequest,
+} from '@/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { useDirectPermissions } from '@/hooks/useDirectPermissions';
-import { feeService } from '@/services/fee.service';
-import type { Fee, CreateFeeData, UpdateFeeData } from '../types';
+import { makeGLLookup, toFeeRow, toGLRow } from '@/components/accounting/accounting-utils';
+
+type Result = { success: boolean; error?: string };
 
 export const useFeeManagement = () => {
-  const { user, isAuthenticated, authInitialized, isLoading: authLoading } = useAuth();
-  const { hasPermission, isAdmin } = useDirectPermissions();
-  
-  const [fees, setFees] = useState<Fee[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { user, isAuthenticated, authInitialized, isLoading: authLoading, hasPermission, isAdmin } = useAuth();
 
-  const canAccessFeeManagement = useCallback(() => {
-    return isAdmin || hasPermission('view_fees');
-  }, [isAdmin, hasPermission]);
+  const canAccessFeeManagement = () => isAdmin || hasPermission('view_fees');
+  const canCreateFee = () => isAdmin || hasPermission('create_fee');
+  const canEditFee = () => isAdmin || hasPermission('update_fees');
+  const canDeleteFee = () => isAdmin || hasPermission('delete_fees');
+  const canToggleFee = () => isAdmin || hasPermission('deactivate_fees');
 
-  const canCreateFee = useCallback(() => isAdmin || hasPermission('create_fee'), [isAdmin, hasPermission]);
-  const canEditFee = useCallback(() => isAdmin || hasPermission('update_fees'), [isAdmin, hasPermission]);
-  const canDeleteFee = useCallback(() => isAdmin || hasPermission('delete_fees'), [isAdmin, hasPermission]);
-  const canToggleFee = useCallback(() => isAdmin || hasPermission('deactivate_fees'), [isAdmin, hasPermission]);
+  const enabled = isAuthenticated && canAccessFeeManagement();
+  const feesQuery = useFees({ enabled });
+  const glQuery = useGLAccounts({ enabled });
 
-  const fetchFees = useCallback(async () => {
-    if (!isAuthenticated) {
-      setLoading(false);
-      return;
-    }
+  const fees = useMemo(() => (feesQuery.data ?? []).map(toFeeRow), [feesQuery.data]);
+  const glAccounts = useMemo(() => (glQuery.data ?? []).map(toGLRow), [glQuery.data]);
+  const gl = useMemo(() => makeGLLookup(glAccounts), [glAccounts]);
 
-    setLoading(true);
-    setError(null);
+  const create = useCreateFee();
+  const update = useUpdateFee();
+  const toggle = useToggleFeeActivation();
+  const remove = useDeleteFee();
+
+  const run = async (fn: () => Promise<unknown>, failure: string): Promise<Result> => {
     try {
-      const feesData = await feeService.getAll();
-      setFees(feesData);
-    } catch (error) {
-      console.error('Error fetching fees:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to fetch fees';
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    fetchFees();
-  }, [fetchFees]);
-
-  const createFee = async (feeData: CreateFeeData & { createdBy?: string }): Promise<{ success: boolean; error?: string; data?: Fee }> => {
-    try {
-      if (!feeData.name.trim()) return { success: false, error: "Fee name is required" };
-      if (feeData.value <= 0) return { success: false, error: "Fee value must be greater than 0" };
-      if (!feeData.glAccount.trim()) return { success: false, error: "GL Account is required" };
-
-      const createdFee = await feeService.create(feeData);
-      setFees(prev => [...prev, createdFee]);
-      return { success: true, data: createdFee };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to create fee';
-      return { success: false, error: errorMessage };
-    }
-  };
-
-  const updateFee = async (feeId: string, feeData: UpdateFeeData & { updatedBy?: string }): Promise<{ success: boolean; error?: string; data?: Fee }> => {
-    try {
-      if (!feeData.name?.trim()) return { success: false, error: "Fee name is required" };
-      if (feeData.value !== undefined && feeData.value <= 0) return { success: false, error: "Fee value must be greater than 0" };
-      if (!feeData.glAccount?.trim()) return { success: false, error: "GL Account is required" };
-
-      const updatedFee = await feeService.update(feeId, feeData);
-      setFees(prev => prev.map(fee => fee._id === feeId ? updatedFee : fee));
-      return { success: true, data: updatedFee };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update fee';
-      return { success: false, error: errorMessage };
-    }
-  };
-
-  const toggleFeeStatus = async (feeId: string, currentStatus: boolean): Promise<{ success: boolean; error?: string }> => {
-    try {
-      await feeService.toggleStatus(feeId, currentStatus);
-      setFees(prev => prev.map(fee => fee._id === feeId ? { ...fee, isActive: !currentStatus } : fee));
+      await fn();
       return { success: true };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update fee status';
-      return { success: false, error: errorMessage };
+    } catch (err) {
+      return { success: false, error: getErrorMessage(err, failure) };
     }
   };
 
-  const deleteFee = async (feeId: string): Promise<{ success: boolean; error?: string }> => {
-    try {
-      await feeService.delete(feeId);
-      setFees(prev => prev.filter(fee => fee._id !== feeId));
-      return { success: true };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to delete fee';
-      return { success: false, error: errorMessage };
-    }
+  const validate = (data: Partial<CreateFeeRequest>) => {
+    if (!data.name?.trim()) return 'Fee name is required';
+    if (!data.value || data.value <= 0) return 'Fee value must be greater than 0';
+    if (data.type === 'percentage' && data.value > 100) return 'A percentage fee cannot exceed 100%';
+    return null;
   };
+
+  /** `glAccount` is optional: the product's fee-income GL is used when it is empty. */
+  const createFee = async (data: CreateFeeRequest): Promise<Result> => {
+    const error = validate(data);
+    if (error) return { success: false, error };
+    return run(() => create.mutateAsync({ ...data, glAccount: data.glAccount || undefined }), 'Failed to create fee');
+  };
+
+  const updateFee = async (id: string, data: UpdateFeeRequest): Promise<Result> => {
+    const error = validate(data);
+    if (error) return { success: false, error };
+    return run(() => update.mutateAsync({ id, data: { ...data, glAccount: data.glAccount || undefined } }), 'Failed to update fee');
+  };
+
+  const toggleFeeStatus = (id: string) => run(() => toggle.mutateAsync(id), 'Failed to update fee status');
+  const deleteFee = (id: string) => run(() => remove.mutateAsync(id), 'Failed to delete fee');
 
   const searchFees = (searchTerm: string) => {
-    if (!searchTerm) return fees;
-    
-    return fees.filter(fee =>
-      fee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      fee.glAccount.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      fee.type.toLowerCase().includes(searchTerm.toLowerCase())
+    const search = searchTerm.toLowerCase();
+    if (!search) return fees;
+    return fees.filter((fee) =>
+      [fee.name, fee.type, gl.name(fee.glAccount)].some((v) => v.toLowerCase().includes(search)),
     );
   };
 
   const getSummaryStats = () => ({
     totalFees: fees.length,
-    activeFees: fees.filter(f => f.isActive).length,
-    flatFees: fees.filter(f => f.type === 'flat').length,
-    percentageFees: fees.filter(f => f.type === 'percentage').length,
+    activeFees: fees.filter((f) => f.isActive).length,
+    flatFees: fees.filter((f) => f.type === 'flat').length,
+    percentageFees: fees.filter((f) => f.type === 'percentage').length,
   });
 
   return {
@@ -122,10 +92,14 @@ export const useFeeManagement = () => {
     hasPermission,
     isAdmin,
     fees,
-    loading,
-    error,
-    setError,
-    fetchFees,
+    glAccounts,
+    activeGLAccounts: glAccounts.filter((a) => a.isActive),
+    getGLAccountName: gl.name,
+    loading: feesQuery.isLoading,
+    error: feesQuery.error ? getErrorMessage(feesQuery.error, 'Failed to fetch fees') : null,
+    fetchFees: () => feesQuery.refetch(),
+    isSaving: create.isPending || update.isPending,
+    isDeleting: remove.isPending,
     canAccessFeeManagement,
     canCreateFee,
     canEditFee,

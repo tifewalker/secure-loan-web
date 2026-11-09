@@ -3,7 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { AuthProvider, BankingProvider, RoleProvider } from "./contexts";
+import { AuthProvider, BankingProvider } from "./contexts";
 import { ProtectedRoute, AdminRoute, Layout } from "./components";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
@@ -37,7 +37,8 @@ import {
   FeeManagementPage,
   InterestManagementPage,
   LoanProductsPage,
-  ReportsPage
+  ReportsPage,
+  HolidaysPage
 } from "./pages/admin";
 
 const queryClient = new QueryClient();
@@ -47,7 +48,6 @@ const App = () => (
     <TooltipProvider>
       <AuthProvider>
         <BankingProvider>
-          <RoleProvider>
             <Toaster />
             <Sonner />
             <BrowserRouter>
@@ -179,6 +179,14 @@ const App = () => (
                   </AdminRoute>
                 } />
                
+                <Route path="/admin/holidays" element={
+                  <AdminRoute>
+                    <Layout>
+                      <HolidaysPage />
+                    </Layout>
+                  </AdminRoute>
+                } />
+
                 {/* Administration */}
                 <Route path="/admin/staff" element={
                   <AdminRoute>
@@ -230,7 +238,6 @@ const App = () => (
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </BrowserRouter>
-          </RoleProvider>
         </BankingProvider>
       </AuthProvider>
     </TooltipProvider>
